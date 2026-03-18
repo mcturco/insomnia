@@ -70,6 +70,7 @@ import { useRequestGroupDeleteActionFetcher } from '~/routes/organization.$organ
 import { useRequestGroupDuplicateActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request-group.duplicate';
 import { useRequestGroupNewActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request-group.new';
 import { useMockServerGenerateRequestCollectionActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.mock-server.generate-request-collection';
+import { useKonnectSyncActionFetcher } from '~/routes/organization.$organizationId.konnect.sync';
 import { useProjectSidebarTreeMoveActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.sidebar-tree.move';
 import { useProjectMoveWorkspaceActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.move-workspace';
 import { useProjectDeleteActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.delete';
@@ -96,11 +97,13 @@ import { NewWorkspaceModal } from '~/ui/components/modals/new-workspace-modal';
 import { PasteCurlModal } from '~/ui/components/modals/paste-curl-modal';
 import { ProjectModal } from '~/ui/components/modals/project-modal';
 import { PromptModal } from '~/ui/components/modals/prompt-modal';
+import { KonnectSyncModal } from '~/ui/components/modals/konnect-sync-modal';
 import { WorkspaceDuplicateModal } from '~/ui/components/modals/workspace-duplicate-modal';
 import { WorkspaceSettingsModal } from '~/ui/components/modals/workspace-settings-modal';
 import { NoProjectView } from '~/ui/components/panes/no-project-view';
 import { NoSelectedProjectView } from '~/ui/components/panes/no-selected-project-view';
 import { ProjectEmptyView } from '~/ui/components/project/project-empty-view';
+import { KonnectLogo } from '~/ui/components/konnect-logo';
 import {
   ProjectSidebarTree,
   type ProjectSidebarTreeAction,
@@ -120,6 +123,7 @@ import { useInsomniaEventStreamContext } from '~/ui/context/app/insomnia-event-s
 import { useTabNavigate } from '~/ui/hooks/use-insomnia-tab';
 import { useLoaderDeferData } from '~/ui/hooks/use-loader-defer-data';
 import { useOrganizationPermissions } from '~/ui/hooks/use-organization-features';
+import { loadKonnectConnection, saveKonnectConnection } from '~/ui/konnect/storage';
 import { DEFAULT_STORAGE_RULES } from '~/ui/organization-utils';
 import { isPrimaryClickModifier } from '~/ui/utils';
 import { invariant } from '~/utils/invariant';
@@ -658,6 +662,7 @@ const Component = () => {
   const updateWorkspaceFetcher = useWorkspaceUpdateActionFetcher();
   const deleteWorkspaceFetcher = useWorkspaceDeleteActionFetcher();
   const generateCollectionFetcher = useMockServerGenerateRequestCollectionActionFetcher();
+  const konnectSyncFetcher = useKonnectSyncActionFetcher({ key: `konnect-sync-poll:${organizationId}` });
   const { billing } = useOrganizationPermissions();
 
   useEffect(() => {
@@ -675,6 +680,69 @@ const Component = () => {
       });
     }
   }, [deleteProjectFetcher.data, deleteProjectFetcher.state]);
+  
+  useEffect(() => {
+    if (!konnectSyncFetcher.data || konnectSyncFetcher.state !== 'idle') {
+      return;
+    }
+
+    if (konnectSyncFetcher.data.ok && konnectSyncFetcher.data.action === 'sync') {
+      const existingConnection = loadKonnectConnection(organizationId);
+      if (existingConnection) {
+        saveKonnectConnection(organizationId, {
+          ...existingConnection,
+          lastSyncAt: Date.now(),
+          lastSyncStatus: 'success',
+          lastSyncError: undefined,
+        });
+      }
+      return;
+    }
+
+    if (konnectSyncFetcher.data.ok && konnectSyncFetcher.data.action === 'disconnect') {
+      return;
+    }
+
+    const existingConnection = loadKonnectConnection(organizationId);
+    if (existingConnection) {
+      const syncError = (konnectSyncFetcher.data as any)?.error;
+      saveKonnectConnection(organizationId, {
+        ...existingConnection,
+        lastSyncStatus: 'error',
+        lastSyncError: syncError || 'Konnect sync failed',
+      });
+    }
+  }, [konnectSyncFetcher.data, konnectSyncFetcher.state, organizationId]);
+
+  useEffect(() => {
+    const connection = loadKonnectConnection(organizationId);
+    if (!connection?.pat || konnectSyncFetcher.state !== 'idle') {
+      return;
+    }
+
+    const hasAnyLinkedKonnectProject = projects.some(project => project.konnect?.source === 'konnect');
+    if (!hasAnyLinkedKonnectProject) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const latestConnection = loadKonnectConnection(organizationId);
+      if (!latestConnection?.pat) {
+        return;
+      }
+
+      konnectSyncFetcher.submit({
+        organizationId,
+        action: 'sync',
+        pat: latestConnection.pat,
+        region: latestConnection.region,
+      });
+    }, 300000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [konnectSyncFetcher, organizationId, projects]);
 
   // TODO(INS-1912): Remove in 12.5
   useEffect(() => {
@@ -749,6 +817,7 @@ const Component = () => {
   const [projectSettingsTarget, setProjectSettingsTarget] = useState<
     (Project & { gitRepository?: GitRepository }) | null
   >(null);
+  const [isKonnectSyncModalOpen, setIsKonnectSyncModalOpen] = useState(false);
   const organization = organizationData?.organizations.find(o => o.id === organizationId);
   const isUserOwner =
     organization && userSession.accountId && isOwnerOfOrganization({ organization, accountId: userSession.accountId });
@@ -1307,6 +1376,25 @@ const Component = () => {
         PATCH: 'bg-[rgba(var(--color-notice-rgb),0.5)] text-(--color-font-notice)',
       } as Record<string, string>
     )[method] || 'bg-(--hl-md) text-(--color-font)';
+
+  const renderKonnectProjectIcon = (project: Project & { konnect?: { source: 'konnect'; connected: boolean } }) => {
+    const isKonnectProject =
+      project._id.startsWith('proj_konnect_') ||
+      (project.konnect?.source === 'konnect' && project.konnect.connected);
+
+    if (!isKonnectProject) {
+      return null;
+    }
+
+    return <KonnectLogo />;
+  };
+
+  const getDefaultProjectIcon = (project: Project) =>
+    isRemoteProject(project)
+      ? ('globe-americas' as const)
+      : isGitProject(project)
+        ? ((['fab', 'git-alt'] as unknown as IconProp))
+        : ('laptop' as const);
 
   const getProjectActions = (project: (Project & { gitRepository?: GitRepository })): ProjectSidebarTreeAction[] => [
     {
@@ -1920,15 +2008,24 @@ const Component = () => {
           >
             <div className="flex flex-1 flex-col divide-y divide-solid divide-(--hl-md) overflow-hidden">
               <div className="flex flex-1 flex-col overflow-hidden">
-                <div className="flex items-center justify-between p-(--padding-sm)">
+                <div className="sticky top-0 z-10 flex items-center justify-between bg-(--color-bg) p-(--padding-sm)">
                   <Heading className="text-xs uppercase">Projects</Heading>
-                  <Button
-                    aria-label="Create new Project"
-                    onPress={() => setIsNewProjectModalOpen(true)}
-                    className="flex aspect-square h-6 items-center justify-center rounded-xs text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
-                  >
-                    <Icon icon="plus-circle" />
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      aria-label="Open Konnect Sync"
+                      onPress={() => setIsKonnectSyncModalOpen(true)}
+                      className="flex aspect-square h-6 items-center justify-center rounded-xs text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
+                    >
+                      <Icon icon="cloud" />
+                    </Button>
+                    <Button
+                      aria-label="Create new Project"
+                      onPress={() => setIsNewProjectModalOpen(true)}
+                      className="flex aspect-square h-6 items-center justify-center rounded-xs text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
+                    >
+                      <Icon icon="plus-circle" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-y-auto overflow-x-hidden py-1">
                   <ProjectSidebarTree
@@ -1957,16 +2054,29 @@ const Component = () => {
                       openCollectionTreeNode({ project, workspace: file.workspace, node, withTab });
                     }}
                     isPrimaryClickModifier={isPrimaryClickModifier}
-                    getProjectIcon={project =>
-                      isRemoteProject(project)
-                        ? 'globe-americas'
-                        : isGitProject(project)
-                          ? (['fab', 'git-alt'] as unknown as IconProp)
-                          : 'laptop'
-                    }
+                    getProjectIcon={project => getDefaultProjectIcon(project)}
+                    renderProjectIcon={project => renderKonnectProjectIcon(project) || <Icon icon={getDefaultProjectIcon(project)} />}
                     renderProjectMeta={project =>
-                      project.presence.length > 0 ? (
-                        <AvatarGroup size="small" maxAvatars={3} items={project.presence} />
+                      project.presence.length > 0 || (project.konnect?.source === 'konnect' && project.konnect.connected) ? (
+                        <div className="flex items-center gap-1">
+                          {project.konnect?.source === 'konnect' && project.konnect.connected && (
+                            <TooltipTrigger>
+                              <div className="flex h-5 w-5 items-center justify-center rounded-xs text-(--hl)">
+                                <Icon icon="cloud" />
+                              </div>
+                              <Tooltip
+                                placement="top"
+                                offset={4}
+                                className="max-h-[85vh] max-w-xs overflow-y-auto rounded-md border border-solid border-(--hl-sm) bg-(--color-bg) px-4 py-2 text-sm text-(--color-font) shadow-lg select-none focus:outline-hidden"
+                              >
+                                Connected to Konnect cloud source
+                              </Tooltip>
+                            </TooltipTrigger>
+                          )}
+                          {project.presence.length > 0 ? (
+                            <AvatarGroup size="small" maxAvatars={3} items={project.presence} />
+                          ) : null}
+                        </div>
                       ) : null
                     }
                     getRequestMethodBadgeClass={getRequestMethodBadgeClass}
@@ -2362,6 +2472,13 @@ const Component = () => {
             isOpen={isNewProjectModalOpen}
             onOpenChange={setIsNewProjectModalOpen}
             storageRules={storageRules}
+          />
+        )}
+        {isKonnectSyncModalOpen && (
+          <KonnectSyncModal
+            isOpen={isKonnectSyncModalOpen}
+            onOpenChange={setIsKonnectSyncModalOpen}
+            organizationId={organizationId}
           />
         )}
         {projectSettingsTarget && (

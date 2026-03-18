@@ -10,6 +10,7 @@ import { SegmentEvent } from '~/ui/analytics';
 import { AvatarGroup } from '../avatar';
 import { ProjectDropdown } from '../dropdowns/project-dropdown';
 import { Icon } from '../icon';
+import { KonnectLogo } from '../konnect-logo';
 
 export type ProjectWithPresence = Project & {
   gitRepository?: GitRepository;
@@ -27,6 +28,7 @@ interface ProjectListSidebarProps {
   projectsCount: number;
   storageRules: StorageRules;
   onCreateProject: () => void;
+  onOpenKonnectSync?: () => void;
 }
 
 export const ProjectListSidebar = ({
@@ -36,7 +38,11 @@ export const ProjectListSidebar = ({
   projectsCount,
   storageRules,
   onCreateProject,
+  onOpenKonnectSync,
 }: ProjectListSidebarProps) => {
+  const isKonnectProject = (project: ProjectWithPresence) =>
+    project._id.startsWith('proj_konnect_') || (project.konnect?.source === 'konnect' && project.konnect.connected);
+
   const navigate = useNavigate();
 
   const [projectListFilter, setProjectListFilter] = reactUse.useLocalStorage(
@@ -50,8 +56,8 @@ export const ProjectListSidebar = ({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <Heading className="p-(--padding-sm) text-xs uppercase">Projects ({projectsCount})</Heading>
-      <div className="flex justify-between gap-1 p-(--padding-sm)">
+      <Heading className="shrink-0 p-(--padding-sm) text-xs uppercase">Projects ({projectsCount})</Heading>
+      <div className="flex shrink-0 justify-between gap-1 p-(--padding-sm)">
         <SearchField
           aria-label="Projects filter"
           className="group relative flex-1"
@@ -77,6 +83,14 @@ export const ProjectListSidebar = ({
             </Button>
           </div>
         </SearchField>
+        <Button
+          aria-label="Open Konnect Sync"
+          onPress={onOpenKonnectSync}
+          isDisabled={!onOpenKonnectSync}
+          className="flex aspect-square h-full items-center justify-center rounded-xs text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
+        >
+          <Icon icon="cloud" />
+        </Button>
         <Button
           aria-label="Create new Project"
           onPress={onCreateProject}
@@ -114,9 +128,13 @@ export const ProjectListSidebar = ({
             >
               <div className="relative flex h-(--line-height-xs) w-full items-center gap-2 overflow-hidden px-4 text-(--hl) outline-hidden transition-colors select-none group-hover:bg-(--hl-xs) group-focus:bg-(--hl-sm) group-aria-selected:text-(--color-font)">
                 <span className="absolute top-0 left-0 h-full w-[2px] bg-transparent transition-colors group-aria-selected:bg-(--color-surprise)" />
-                <Icon
-                  icon={isRemoteProject(item) ? 'globe-americas' : isGitProject(item) ? ['fab', 'git-alt'] : 'laptop'}
-                />
+                {isKonnectProject(item) ? (
+                  <KonnectLogo />
+                ) : (
+                  <Icon
+                    icon={isRemoteProject(item) ? 'globe-americas' : isGitProject(item) ? ['fab', 'git-alt'] : 'laptop'}
+                  />
+                )}
                 <span className={'truncate'}>{item.name}</span>
                 <span className="flex-1" />
                 {item.presence.length > 0 && <AvatarGroup size="small" maxAvatars={3} items={item.presence} />}

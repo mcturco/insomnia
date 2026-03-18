@@ -79,6 +79,7 @@ const Component = ({ loaderData, params }: Route.ComponentProps) => {
   const { activeProject, activeWorkspace, baseEnvironment, activeEnvironment, subEnvironments, activeWorkspaceMeta } =
     routeData;
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string>(activeEnvironment._id);
+  const [isEditorHydrated, setIsEditorHydrated] = useState(false);
   const isUsingInsomniaCloudSync = Boolean(isRemoteProject(activeProject) && !activeWorkspaceMeta?.gitRepositoryId);
   const isUsingGitSync = Boolean(features.gitSync.enabled && activeWorkspaceMeta?.gitRepositoryId);
 
@@ -92,6 +93,9 @@ const Component = ({ loaderData, params }: Route.ComponentProps) => {
       setSelectedEnvironmentId(activeEnvironment._id);
     }
   }, [selectedEnvironmentId, activeEnvironment._id, allEnvironment]);
+  useEffect(() => {
+    setIsEditorHydrated(true);
+  }, []);
   const selectedEnvironment = allEnvironment.find(env => env._id === selectedEnvironmentId);
   // Do not allowed to switch to json environment if contains secret item
   const allowSwitchEnvironment = !selectedEnvironment?.kvPairData?.some(
@@ -567,7 +571,8 @@ const Component = ({ loaderData, params }: Route.ComponentProps) => {
             )}
           </div>
           {/* legacy JSON environment do not have environmentType property*/}
-          {selectedEnvironment &&
+          {isEditorHydrated &&
+            selectedEnvironment &&
             (selectedEnvironment.environmentType === EnvironmentType.JSON || !selectedEnvironment.environmentType) && (
               <EnvironmentEditor
                 ref={environmentEditorRef}
@@ -579,7 +584,7 @@ const Component = ({ loaderData, params }: Route.ComponentProps) => {
                 }}
               />
             )}
-          {selectedEnvironment && selectedEnvironment.environmentType === EnvironmentType.KVPAIR && (
+          {isEditorHydrated && selectedEnvironment && selectedEnvironment.environmentType === EnvironmentType.KVPAIR && (
             <EnvironmentKVEditor
               key={selectedEnvironment._id}
               data={selectedEnvironment.kvPairData || []}

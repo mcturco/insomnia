@@ -46,11 +46,13 @@ import { AlertModal } from '~/ui/components/modals/alert-modal';
 import { AskModal } from '~/ui/components/modals/ask-modal';
 import { ExportRequestsModal } from '~/ui/components/modals/export-requests-modal';
 import { ImportModal } from '~/ui/components/modals/import-modal/import-modal';
+import { KonnectSyncModal } from '~/ui/components/modals/konnect-sync-modal';
 import { PasteCurlModal } from '~/ui/components/modals/paste-curl-modal';
 import { ProjectModal } from '~/ui/components/modals/project-modal';
 import { PromptModal } from '~/ui/components/modals/prompt-modal';
 import { WorkspaceDuplicateModal } from '~/ui/components/modals/workspace-duplicate-modal';
 import { WorkspaceSettingsModal } from '~/ui/components/modals/workspace-settings-modal';
+import { KonnectLogo } from '~/ui/components/konnect-logo';
 import {
   ProjectSidebarTree,
   type ProjectSidebarTreeAction,
@@ -296,6 +298,7 @@ function ProjectSidebarShell() {
   const [projectSettingsTarget, setProjectSettingsTarget] = useState<(Project & { gitRepository?: GitRepository }) | null>(
     null,
   );
+  const [isKonnectSyncModalOpen, setIsKonnectSyncModalOpen] = useState(false);
   const [activeCollectionTarget, setActiveCollectionTarget] = useState<{
     project: Project;
     workspace: Workspace;
@@ -691,6 +694,25 @@ function ProjectSidebarShell() {
         PATCH: 'bg-[rgba(var(--color-notice-rgb),0.5)] text-(--color-font-notice)',
       } as Record<string, string>
     )[method] || 'bg-(--hl-md) text-(--color-font)';
+
+  const renderKonnectProjectIcon = (project: Project & { konnect?: { source: 'konnect'; connected: boolean } }) => {
+    const isKonnectProject =
+      project._id.startsWith('proj_konnect_') ||
+      (project.konnect?.source === 'konnect' && project.konnect.connected);
+
+    if (!isKonnectProject) {
+      return null;
+    }
+
+    return <KonnectLogo />;
+  };
+
+  const getDefaultProjectIcon = (project: Project) =>
+    isRemoteProject(project)
+      ? ('globe-americas' as const)
+      : isGitProject(project)
+        ? ((['fab', 'git-alt'] as unknown as IconProp))
+        : ('laptop' as const);
 
   const createCollectionRequest = ({
     project,
@@ -1286,15 +1308,24 @@ function ProjectSidebarShell() {
         >
           <div className="flex flex-1 flex-col divide-y divide-solid divide-(--hl-md) overflow-hidden">
             <div className="flex flex-1 flex-col overflow-hidden">
-              <div className="flex items-center justify-between p-(--padding-sm)">
+              <div className="sticky top-0 z-10 flex items-center justify-between bg-(--color-bg) p-(--padding-sm)">
                 <Heading className="text-xs uppercase">Projects</Heading>
-                <Button
-                  aria-label="Create new Project"
-                  onPress={() => setIsNewProjectModalOpen(true)}
-                  className="flex aspect-square h-6 items-center justify-center rounded-xs text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
-                >
-                  <Icon icon="plus-circle" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    aria-label="Open Konnect Sync"
+                    onPress={() => setIsKonnectSyncModalOpen(true)}
+                    className="flex aspect-square h-6 items-center justify-center rounded-xs text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
+                  >
+                    <Icon icon="cloud" />
+                  </Button>
+                  <Button
+                    aria-label="Create new Project"
+                    onPress={() => setIsNewProjectModalOpen(true)}
+                    className="flex aspect-square h-6 items-center justify-center rounded-xs text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
+                  >
+                    <Icon icon="plus-circle" />
+                  </Button>
+                </div>
               </div>
             <div className="flex-1 overflow-y-auto overflow-x-hidden py-1">
               <ProjectSidebarTree
@@ -1323,13 +1354,8 @@ function ProjectSidebarShell() {
                   openCollectionTreeNode({ project, workspace: file.workspace, node, withTab });
                 }}
                 isPrimaryClickModifier={isPrimaryClickModifier}
-                getProjectIcon={project =>
-                  isRemoteProject(project)
-                    ? 'globe-americas'
-                    : isGitProject(project)
-                      ? (['fab', 'git-alt'] as unknown as IconProp)
-                      : 'laptop'
-                }
+                getProjectIcon={project => getDefaultProjectIcon(project)}
+                renderProjectIcon={project => renderKonnectProjectIcon(project) || <Icon icon={getDefaultProjectIcon(project)} />}
                 getRequestMethodBadgeClass={getRequestMethodBadgeClass}
                 getRequestMethodLabel={method => getMethodShortHand({ method } as Request)}
                 getProjectActions={getProjectActions}
@@ -1385,6 +1411,13 @@ function ProjectSidebarShell() {
           project={projectSettingsTarget}
           gitRepository={projectSettingsTarget.gitRepository}
           storageRules={storageRules}
+        />
+      )}
+      {isKonnectSyncModalOpen && (
+        <KonnectSyncModal
+          organizationId={organizationId}
+          isOpen={isKonnectSyncModalOpen}
+          onOpenChange={setIsKonnectSyncModalOpen}
         />
       )}
       {activeCollectionTarget && isCollectionImportModalOpen && (

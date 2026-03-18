@@ -31,6 +31,14 @@ export const projectHasSettings = (project: Pick<Project, '_id'>) => !isScratchp
 interface CommonProject {
   name: string;
   mcpStdioAccess?: boolean;
+  konnect?: {
+    source: 'konnect';
+    controlPlaneId: string;
+    region: 'global' | 'us' | 'eu' | 'au';
+    connected: boolean;
+    syncStatus?: 'idle' | 'success' | 'error';
+    lastSyncedAt?: number;
+  };
 }
 
 export interface RemoteProject extends BaseModel, CommonProject {

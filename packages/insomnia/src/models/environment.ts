@@ -60,7 +60,14 @@ export type Environment = BaseModel & BaseEnvironment;
 export type UserUploadEnvironment = Pick<Environment, 'data' | 'dataPropertyOrder' | 'name'>;
 
 export function getKVPairFromData(data: Record<string, any>, dataPropertyOrder: Record<string, any> | null) {
-  const ordered = orderedJSON.order(data, dataPropertyOrder, JSON_ORDER_SEPARATOR);
+  let ordered: Record<string, any>;
+  try {
+    ordered = orderedJSON.order(data, dataPropertyOrder, JSON_ORDER_SEPARATOR);
+  } catch {
+    // Defensive fallback for malformed persisted order maps.
+    // Preserve functionality (table/raw editors) by using natural object order.
+    ordered = data || {};
+  }
   const kvPair: EnvironmentKvPairData[] = [];
   Object.keys(ordered).forEach(key => {
     const val = ordered[key];
