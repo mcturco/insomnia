@@ -1,6 +1,6 @@
 import type { IconName, IconProp } from '@fortawesome/fontawesome-svg-core';
 import { getLearningFeature } from 'insomnia-api';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   GridList,
@@ -15,12 +15,15 @@ import {
   Popover,
   SearchField,
   Select,
+  Tab,
+  TabList,
+  Tabs,
   Tooltip,
   TooltipTrigger,
 } from 'react-aria-components';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import type { LoaderFunctionArgs } from 'react-router';
-import { href, redirect, useFetchers, useLoaderData, useNavigate, useParams, useRouteLoaderData } from 'react-router';
+import { href, redirect, useFetchers, useLoaderData, useNavigate, useParams, useRevalidator, useRouteLoaderData } from 'react-router';
 import * as reactUse from 'react-use';
 
 import { logout } from '~/account/session';
@@ -61,6 +64,9 @@ import type { WorkspaceMeta } from '~/models/workspace-meta';
 import { useRootLoaderData } from '~/root';
 import { useOrganizationLoaderData } from '~/routes/organization';
 import { useInsomniaSyncPullRemoteFileActionFetcher } from '~/routes/organization.$organizationId.insomnia-sync.pull-remote-file';
+import { useKonnectSyncActionFetcher } from '~/routes/organization.$organizationId.konnect.sync';
+import { useProjectMoveWorkspaceActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.move-workspace';
+import { useProjectSidebarTreeMoveActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.sidebar-tree.move';
 import { useRequestDuplicateActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request.$requestId.duplicate';
 import { useRequestUpdateActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request.$requestId.update';
 import { useRequestDeleteActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request.delete';
@@ -70,40 +76,36 @@ import { useRequestGroupDeleteActionFetcher } from '~/routes/organization.$organ
 import { useRequestGroupDuplicateActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request-group.duplicate';
 import { useRequestGroupNewActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request-group.new';
 import { useMockServerGenerateRequestCollectionActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.mock-server.generate-request-collection';
-import { useKonnectSyncActionFetcher } from '~/routes/organization.$organizationId.konnect.sync';
-import { useProjectSidebarTreeMoveActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.sidebar-tree.move';
-import { useProjectMoveWorkspaceActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.move-workspace';
-import { useProjectDeleteActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.delete';
 import { useWorkspaceDeleteActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.delete';
 import { useWorkspaceNewActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.new';
 import { useWorkspaceUpdateActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.update';
 import { useStorageRulesLoaderFetcher } from '~/routes/organization.$organizationId.storage-rules';
 import { VCSInstance } from '~/sync/vcs/insomnia-sync';
 import { SegmentEvent, trackOnceDaily } from '~/ui/analytics';
+import kongLogomarkSvg from '~/ui/components/assets/kong-logomark.svg';
 import { AvatarGroup } from '~/ui/components/avatar';
 import { CloudSyncProjectBar } from '~/ui/components/dropdowns/cloud-sync-project-bar';
 import { GitProjectSyncDropdown } from '~/ui/components/dropdowns/git-project-sync-dropdown';
 import { LocalProjectBar } from '~/ui/components/dropdowns/local-project-bar';
-import { SyncDropdown } from '~/ui/components/dropdowns/sync-dropdown';
 import { WorkspaceCardDropdown } from '~/ui/components/dropdowns/workspace-card-dropdown';
 import { ErrorBoundary } from '~/ui/components/error-boundary';
 import { Icon } from '~/ui/components/icon';
+import { KonnectGatewayLogo } from '~/ui/components/konnect-logo';
 import { showModal } from '~/ui/components/modals';
-import { AlertModal } from '~/ui/components/modals/alert-modal';
 import { AskModal } from '~/ui/components/modals/ask-modal';
 import { ExportRequestsModal } from '~/ui/components/modals/export-requests-modal';
 import { ImportModal } from '~/ui/components/modals/import-modal/import-modal';
+import { KonnectSyncModal } from '~/ui/components/modals/konnect-sync-modal';
 import { NewWorkspaceModal } from '~/ui/components/modals/new-workspace-modal';
 import { PasteCurlModal } from '~/ui/components/modals/paste-curl-modal';
 import { ProjectModal } from '~/ui/components/modals/project-modal';
 import { PromptModal } from '~/ui/components/modals/prompt-modal';
-import { KonnectSyncModal } from '~/ui/components/modals/konnect-sync-modal';
 import { WorkspaceDuplicateModal } from '~/ui/components/modals/workspace-duplicate-modal';
 import { WorkspaceSettingsModal } from '~/ui/components/modals/workspace-settings-modal';
 import { NoProjectView } from '~/ui/components/panes/no-project-view';
 import { NoSelectedProjectView } from '~/ui/components/panes/no-selected-project-view';
+import { KonnectEmptyStateCard } from '~/ui/components/project/konnect-empty-state-card';
 import { ProjectEmptyView } from '~/ui/components/project/project-empty-view';
-import { KonnectLogo } from '~/ui/components/konnect-logo';
 import {
   ProjectSidebarTree,
   type ProjectSidebarTreeAction,
@@ -123,8 +125,10 @@ import { useInsomniaEventStreamContext } from '~/ui/context/app/insomnia-event-s
 import { useTabNavigate } from '~/ui/hooks/use-insomnia-tab';
 import { useLoaderDeferData } from '~/ui/hooks/use-loader-defer-data';
 import { useOrganizationPermissions } from '~/ui/hooks/use-organization-features';
+import { getKonnectSidebarState } from '~/ui/konnect/sidebar-state';
 import { loadKonnectConnection, saveKonnectConnection } from '~/ui/konnect/storage';
 import { DEFAULT_STORAGE_RULES } from '~/ui/organization-utils';
+import { trackTempProjectOpened } from '~/ui/temp-segment-tracking';
 import { isPrimaryClickModifier } from '~/ui/utils';
 import { invariant } from '~/utils/invariant';
 
@@ -647,7 +651,6 @@ const Component = () => {
   const organizationData = useOrganizationLoaderData();
   const { presence } = useInsomniaEventStreamContext();
   const storageRuleFetcher = useStorageRulesLoaderFetcher({ key: `storage-rule:${organizationId}` });
-  const deleteProjectFetcher = useProjectDeleteActionFetcher();
   const createNewWorkspaceFetcher = useWorkspaceNewActionFetcher();
   const createRequestFetcher = useRequestNewActionFetcher();
   const createRequestGroupFetcher = useRequestGroupNewActionFetcher();
@@ -663,6 +666,8 @@ const Component = () => {
   const deleteWorkspaceFetcher = useWorkspaceDeleteActionFetcher();
   const generateCollectionFetcher = useMockServerGenerateRequestCollectionActionFetcher();
   const konnectSyncFetcher = useKonnectSyncActionFetcher({ key: `konnect-sync-poll:${organizationId}` });
+  const revalidator = useRevalidator();
+  const lastHandledKonnectSyncRef = useRef<unknown>(null);
   const { billing } = useOrganizationPermissions();
 
   useEffect(() => {
@@ -673,33 +678,36 @@ const Component = () => {
   }, [organizationId, storageRuleFetcher.load]);
 
   useEffect(() => {
-    if (deleteProjectFetcher.data && deleteProjectFetcher.data.error && deleteProjectFetcher.state === 'idle') {
-      showModal(AlertModal, {
-        title: 'Could not delete project',
-        message: deleteProjectFetcher.data.error,
-      });
-    }
-  }, [deleteProjectFetcher.data, deleteProjectFetcher.state]);
-  
-  useEffect(() => {
     if (!konnectSyncFetcher.data || konnectSyncFetcher.state !== 'idle') {
       return;
     }
 
-    if (konnectSyncFetcher.data.ok && konnectSyncFetcher.data.action === 'sync') {
+    if (lastHandledKonnectSyncRef.current === konnectSyncFetcher.data) {
+      return;
+    }
+    lastHandledKonnectSyncRef.current = konnectSyncFetcher.data;
+
+    if (
+      konnectSyncFetcher.data.ok &&
+      (konnectSyncFetcher.data.action === 'sync' || konnectSyncFetcher.data.action === 'validate')
+    ) {
       const existingConnection = loadKonnectConnection(organizationId);
       if (existingConnection) {
         saveKonnectConnection(organizationId, {
           ...existingConnection,
-          lastSyncAt: Date.now(),
+          lastSyncAt: konnectSyncFetcher.data.action === 'sync' ? Date.now() : existingConnection.lastSyncAt,
           lastSyncStatus: 'success',
           lastSyncError: undefined,
         });
+      }
+      if (konnectSyncFetcher.data.action === 'sync') {
+        revalidator.revalidate();
       }
       return;
     }
 
     if (konnectSyncFetcher.data.ok && konnectSyncFetcher.data.action === 'disconnect') {
+      revalidator.revalidate();
       return;
     }
 
@@ -712,7 +720,10 @@ const Component = () => {
         lastSyncError: syncError || 'Konnect sync failed',
       });
     }
-  }, [konnectSyncFetcher.data, konnectSyncFetcher.state, organizationId]);
+    if ((konnectSyncFetcher.data as any)?.action === 'sync') {
+      revalidator.revalidate();
+    }
+  }, [konnectSyncFetcher.data, konnectSyncFetcher.state, organizationId, revalidator]);
 
   useEffect(() => {
     const connection = loadKonnectConnection(organizationId);
@@ -737,7 +748,7 @@ const Component = () => {
         pat: latestConnection.pat,
         region: latestConnection.region,
       });
-    }, 300000);
+    }, 300_000);
 
     return () => {
       clearInterval(interval);
@@ -754,12 +765,6 @@ const Component = () => {
   const { storagePromise } = storageRuleFetcher.data || {};
 
   const [storageRules = DEFAULT_STORAGE_RULES] = useLoaderDeferData(storagePromise, organizationId);
-  const projectWorkspaces = projectFilesByProjectId[activeProject?._id || ''] ?? [];
-  const activeWorkspace =
-    (workspaceId ? projectWorkspaces.find(file => file.id === workspaceId)?.workspace : null) ||
-    projectWorkspaces.find(file => file.scope === 'collection')?.workspace ||
-    projectWorkspaces.find(file => file.workspace)?.workspace ||
-    null;
 
   const [workspaceListFilter, setWorkspaceListFilter] = reactUse.useLocalStorage(
     `${projectId}:workspace-list-filter`,
@@ -785,11 +790,24 @@ const Component = () => {
     `${organizationId}:project-tree-expanded-request-groups`,
     [],
   );
-  const [projectOrder, setProjectOrder] = reactUse.useLocalStorage<string[]>(`${organizationId}:project-tree-order`, []);
+  const [projectOrder, setProjectOrder] = reactUse.useLocalStorage<string[]>(
+    `${organizationId}:project-tree-order`,
+    [],
+  );
+  const [projectSidebarTab = 'projects', setProjectSidebarTab] = reactUse.useLocalStorage<'projects' | 'konnect'>(
+    `${organizationId}:project-tree-tab`,
+    'projects',
+  );
+  const [konnectProjectFilter, setKonnectProjectFilter] = reactUse.useLocalStorage(
+    `${organizationId}:konnect-project-filter`,
+    '',
+  );
+  const [projectFilter, setProjectFilter] = reactUse.useLocalStorage(`${organizationId}:project-filter`, '');
   const expandedProjectIdList = Array.isArray(expandedProjectIds) ? expandedProjectIds : [];
   const expandedCollectionKeyList = Array.isArray(expandedCollectionKeys) ? expandedCollectionKeys : [];
   const expandedRequestGroupKeyList = Array.isArray(expandedRequestGroupKeys) ? expandedRequestGroupKeys : [];
-  const workspaceOrderMap = workspaceOrderByProjectId && typeof workspaceOrderByProjectId === 'object' ? workspaceOrderByProjectId : {};
+  const workspaceOrderMap =
+    workspaceOrderByProjectId && typeof workspaceOrderByProjectId === 'object' ? workspaceOrderByProjectId : {};
   const projectOrderList = Array.isArray(projectOrder) ? projectOrder : [];
   const [importModalType, setImportModalType] = useState<'file' | 'clipboard' | 'uri' | null>(null);
   const [collectionActionTarget, setCollectionActionTarget] = useState<{
@@ -814,9 +832,7 @@ const Component = () => {
   } | null>(null);
   const [isFolderPasteCurlModalOpen, setIsFolderPasteCurlModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
-  const [projectSettingsTarget, setProjectSettingsTarget] = useState<
-    (Project & { gitRepository?: GitRepository }) | null
-  >(null);
+  const [isUpdateProjectModalOpen, setIsUpdateProjectModalOpen] = useState(false);
   const [isKonnectSyncModalOpen, setIsKonnectSyncModalOpen] = useState(false);
   const organization = organizationData?.organizations.find(o => o.id === organizationId);
   const isUserOwner =
@@ -943,8 +959,55 @@ const Component = () => {
 
     return projectsWithPresence
       .slice()
-      .sort((a, b) => (rankById.get(a._id) ?? Number.MAX_SAFE_INTEGER) - (rankById.get(b._id) ?? Number.MAX_SAFE_INTEGER));
+      .sort(
+        (a, b) => (rankById.get(a._id) ?? Number.MAX_SAFE_INTEGER) - (rankById.get(b._id) ?? Number.MAX_SAFE_INTEGER),
+      );
   }, [projectOrderList, projectsWithPresence]);
+
+  const connection = loadKonnectConnection(organizationId);
+  const konnectSidebarState = getKonnectSidebarState(connection);
+  const showKonnectPromoEmptyState =
+    konnectSidebarState === 'no_pat' || konnectSidebarState === 'pending_initial_sync';
+  const showKonnectAuthBanner = konnectSidebarState === 'auth_invalid';
+  const isKonnectProject = (project: Project) =>
+    project._id.startsWith('proj_konnect_') || project.konnect?.source === 'konnect';
+  const allKonnectProjects = orderedProjectsWithPresence.filter(isKonnectProject);
+  const konnectProjects = showKonnectPromoEmptyState ? [] : allKonnectProjects;
+  const normalProjects = orderedProjectsWithPresence.filter(project => !isKonnectProject(project));
+  const filteredNormalProjects = normalProjects.filter(project =>
+    projectFilter ? project.name.toLowerCase().includes(projectFilter.toLowerCase()) : true,
+  );
+  const filteredKonnectProjects = konnectProjects.filter(project =>
+    konnectProjectFilter ? project.name.toLowerCase().includes(konnectProjectFilter.toLowerCase()) : true,
+  );
+  const visibleProjects = projectSidebarTab === 'konnect' ? filteredKonnectProjects : filteredNormalProjects;
+
+  const syncAllKonnectProjects = () => {
+    const latestConnection = loadKonnectConnection(organizationId);
+    if (!latestConnection?.pat) {
+      setIsKonnectSyncModalOpen(true);
+      return;
+    }
+    konnectSyncFetcher.submit({
+      organizationId,
+      action: 'sync',
+      pat: latestConnection.pat,
+      region: latestConnection.region,
+    });
+  };
+
+  const validateKonnectConnection = () => {
+    const latestConnection = loadKonnectConnection(organizationId);
+    if (!latestConnection?.pat) {
+      return;
+    }
+    konnectSyncFetcher.submit({
+      organizationId,
+      action: 'validate',
+      pat: latestConnection.pat,
+      region: latestConnection.region,
+    });
+  };
 
   useEffect(() => {
     const activeProjectIds = new Set(projectsWithPresence.map(project => project._id));
@@ -1050,21 +1113,21 @@ const Component = () => {
   ];
 
   const workspaceScopeOrder: Record<InsomniaFile['scope'], number> = {
-    collection: 0,
-    environment: 1,
-    mcp: 2,
-    design: 3,
+    'collection': 0,
+    'environment': 1,
+    'mcp': 2,
+    'design': 3,
     'mock-server': 4,
-    unsynced: 5,
+    'unsynced': 5,
   };
 
   const workspaceScopeIcon: Record<InsomniaFile['scope'], IconProp> = {
-    collection: 'bars',
-    environment: 'code',
-    mcp: ['fac', 'mcp'] as unknown as IconProp,
-    design: 'file',
+    'collection': 'bars',
+    'environment': 'code',
+    'mcp': ['fac', 'mcp'] as unknown as IconProp,
+    'design': 'file',
     'mock-server': 'server',
-    unsynced: 'cloud-download',
+    'unsynced': 'cloud-download',
   };
 
   const toggleProjectExpanded = (id: string) => {
@@ -1088,7 +1151,11 @@ const Component = () => {
     setExpandedRequestGroupKeys(next);
   };
 
-  const openFileFromTree = (project: (Project & { gitRepository?: GitRepository }), file: InsomniaFile, withTab?: boolean) => {
+  const openFileFromTree = (
+    project: Project & { gitRepository?: GitRepository },
+    file: InsomniaFile,
+    withTab?: boolean,
+  ) => {
     if (file.scope === 'unsynced') {
       if (project._id === activeProject?._id && project.remoteId && file.remoteId) {
         pullFileFetcher.submit({
@@ -1366,7 +1433,7 @@ const Component = () => {
 
   const getRequestMethodBadgeClass = (method: string) =>
     (
-      {
+      ({
         GET: 'bg-[rgba(var(--color-surprise-rgb),0.5)] text-(--color-font-surprise)',
         POST: 'bg-[rgba(var(--color-success-rgb),0.5)] text-(--color-font-success)',
         HEAD: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
@@ -1374,29 +1441,27 @@ const Component = () => {
         DELETE: 'bg-[rgba(var(--color-danger-rgb),0.5)] text-(--color-font-danger)',
         PUT: 'bg-[rgba(var(--color-warning-rgb),0.5)] text-(--color-font-warning)',
         PATCH: 'bg-[rgba(var(--color-notice-rgb),0.5)] text-(--color-font-notice)',
-      } as Record<string, string>
+      }) as Record<string, string>
     )[method] || 'bg-(--hl-md) text-(--color-font)';
 
-  const renderKonnectProjectIcon = (project: Project & { konnect?: { source: 'konnect'; connected: boolean } }) => {
-    const isKonnectProject =
-      project._id.startsWith('proj_konnect_') ||
-      (project.konnect?.source === 'konnect' && project.konnect.connected);
+  const renderKonnectProjectIcon = (project: Project) => {
+    const isKonnectProject = project._id.startsWith('proj_konnect_') || project.konnect?.source === 'konnect';
 
     if (!isKonnectProject) {
       return null;
     }
 
-    return <KonnectLogo />;
+    return <KonnectGatewayLogo gatewayType={project.konnect?.gatewayType} />;
   };
 
   const getDefaultProjectIcon = (project: Project) =>
     isRemoteProject(project)
       ? ('globe-americas' as const)
       : isGitProject(project)
-        ? ((['fab', 'git-alt'] as unknown as IconProp))
+        ? (['fab', 'git-alt'] as unknown as IconProp)
         : ('laptop' as const);
 
-  const getProjectActions = (project: (Project & { gitRepository?: GitRepository })): ProjectSidebarTreeAction[] => [
+  const getProjectActions = (project: Project & { gitRepository?: GitRepository }): ProjectSidebarTreeAction[] => [
     {
       id: 'new-collection',
       label: 'New Collection',
@@ -1441,38 +1506,10 @@ const Component = () => {
           name: 'my-spec.yaml',
         }),
     },
-    {
-      id: 'settings',
-      label: 'Settings',
-      onAction: () => setProjectSettingsTarget(project),
-    },
-    {
-      id: 'delete',
-      label: 'Delete',
-      isDanger: true,
-      onAction: () =>
-        showModal(AskModal, {
-          title: 'Delete Project',
-          message: isGitProject(project)
-            ? `You are deleting the Git project "${project.name}". Deleting this project will not delete the remote repository but all your local changes will be lost. Do you really want to continue?`
-            : `You are deleting the project "${project.name}" that may have collaborators. As a result of this, the project will be permanently deleted for every collaborator of the organization. Do you really want to continue?`,
-          yesText: 'Delete',
-          noText: 'Cancel',
-          color: 'danger',
-          onDone: async isYes => {
-            if (isYes) {
-              deleteProjectFetcher.submit({
-                organizationId,
-                projectId: project._id,
-              });
-            }
-          },
-        }),
-    },
   ];
 
   const getWorkspaceActions = (
-    project: (Project & { gitRepository?: GitRepository }),
+    project: Project & { gitRepository?: GitRepository },
     file: InsomniaFile,
   ): ProjectSidebarTreeAction[] => {
     if (file.scope === 'unsynced' || !file.workspace) {
@@ -1521,7 +1558,9 @@ const Component = () => {
           id: 'run-collection',
           label: 'Run Collection',
           onAction: () =>
-            navigate(`/organization/${organizationId}/project/${project._id}/workspace/${file.workspace._id}/debug/runner?folder=`),
+            navigate(
+              `/organization/${organizationId}/project/${project._id}/workspace/${file.workspace._id}/debug/runner?folder=`,
+            ),
         },
         {
           id: 'duplicate-move',
@@ -1566,41 +1605,44 @@ const Component = () => {
       });
     }
 
-    actions.push({
-      id: 'settings',
-      label: 'Settings',
-      onAction: () => {
-        setWorkspaceActionTarget({ project, file, workspace: file.workspace });
-        setIsWorkspaceSettingsModalOpen(true);
+    actions.push(
+      {
+        id: 'settings',
+        label: 'Settings',
+        onAction: () => {
+          setWorkspaceActionTarget({ project, file, workspace: file.workspace });
+          setIsWorkspaceSettingsModalOpen(true);
+        },
       },
-    }, {
-      id: 'delete',
-      label: 'Delete',
-      isDanger: true,
-      onAction: () =>
-        showModal(AskModal, {
-          title: `Delete ${scopeToLabelMap[file.scope]}`,
-          message: `Do you really want to delete "${file.name}"?`,
-          yesText: 'Delete',
-          noText: 'Cancel',
-          color: 'danger',
-          onDone: (isYes: boolean) => {
-            if (isYes) {
-              deleteWorkspaceFetcher.submit({
-                organizationId,
-                projectId: project._id,
-                workspaceId: file.workspace._id,
-              });
-            }
-          },
-        }),
-    });
+      {
+        id: 'delete',
+        label: 'Delete',
+        isDanger: true,
+        onAction: () =>
+          showModal(AskModal, {
+            title: `Delete ${scopeToLabelMap[file.scope]}`,
+            message: `Do you really want to delete "${file.name}"?`,
+            yesText: 'Delete',
+            noText: 'Cancel',
+            color: 'danger',
+            onDone: (isYes: boolean) => {
+              if (isYes) {
+                deleteWorkspaceFetcher.submit({
+                  organizationId,
+                  projectId: project._id,
+                  workspaceId: file.workspace._id,
+                });
+              }
+            },
+          }),
+      },
+    );
 
     return actions;
   };
 
   const getCollectionActions = (
-    project: (Project & { gitRepository?: GitRepository }),
+    project: Project & { gitRepository?: GitRepository },
     file: InsomniaFile,
   ): ProjectSidebarTreeAction[] => {
     if (!file.workspace) {
@@ -1635,8 +1677,7 @@ const Component = () => {
       {
         id: 'new-event-stream',
         label: 'Event Stream Request (SSE)',
-        onAction: () =>
-          createCollectionRequest({ project, workspace: file.workspace!, requestType: 'Event Stream' }),
+        onAction: () => createCollectionRequest({ project, workspace: file.workspace!, requestType: 'Event Stream' }),
       },
       {
         id: 'new-graphql',
@@ -1659,44 +1700,6 @@ const Component = () => {
         onAction: () => createCollectionRequest({ project, workspace: file.workspace!, requestType: 'SocketIO' }),
       },
       {
-        id: 'run-collection',
-        label: 'Run Collection',
-        onAction: () =>
-          tabNavigate(
-            {
-              organization: organizationId,
-              project,
-              workspace: file.workspace!,
-              item: file.workspace!,
-            },
-            {
-              shouldNavigate: true,
-              asRunner: true,
-            },
-          ),
-      },
-      {
-        id: 'rename-collection',
-        label: 'Rename Collection',
-        onAction: () =>
-          showModal(PromptModal, {
-            title: 'Rename Collection',
-            defaultValue: file.name,
-            submitName: 'Rename',
-            label: 'Name',
-            selectText: true,
-            onComplete: name =>
-              updateWorkspaceFetcher.submit({
-                organizationId,
-                projectId: project._id,
-                patch: {
-                  workspaceId: file.workspace!._id,
-                  name,
-                },
-              }),
-          }),
-      },
-      {
         id: 'import-curl',
         label: 'Import From Curl',
         onAction: () => {
@@ -1716,7 +1719,7 @@ const Component = () => {
   };
 
   const getFolderActions = (
-    project: (Project & { gitRepository?: GitRepository }),
+    project: Project & { gitRepository?: GitRepository },
     file: InsomniaFile,
     node: ProjectSidebarTreeNode,
   ): ProjectSidebarTreeAction[] => {
@@ -1754,7 +1757,12 @@ const Component = () => {
         id: 'new-http',
         label: 'HTTP Request',
         onAction: () =>
-          createCollectionRequest({ project, workspace: file.workspace!, requestType: 'HTTP', parentId: requestGroup._id }),
+          createCollectionRequest({
+            project,
+            workspace: file.workspace!,
+            requestType: 'HTTP',
+            parentId: requestGroup._id,
+          }),
       },
       {
         id: 'new-event-stream',
@@ -1782,7 +1790,12 @@ const Component = () => {
         id: 'new-grpc',
         label: 'gRPC Request',
         onAction: () =>
-          createCollectionRequest({ project, workspace: file.workspace!, requestType: 'gRPC', parentId: requestGroup._id }),
+          createCollectionRequest({
+            project,
+            workspace: file.workspace!,
+            requestType: 'gRPC',
+            parentId: requestGroup._id,
+          }),
       },
       {
         id: 'new-websocket',
@@ -1805,23 +1818,6 @@ const Component = () => {
             requestType: 'SocketIO',
             parentId: requestGroup._id,
           }),
-      },
-      {
-        id: 'run-folder',
-        label: 'Run Folder',
-        onAction: () =>
-          tabNavigate(
-            {
-              organization: organizationId,
-              project,
-              workspace: file.workspace!,
-              item: requestGroup,
-            },
-            {
-              shouldNavigate: true,
-              asRunner: true,
-            },
-          ),
       },
       {
         id: 'import-curl',
@@ -1874,6 +1870,23 @@ const Component = () => {
           }),
       },
       {
+        id: 'run-folder',
+        label: 'Run Folder',
+        onAction: () =>
+          tabNavigate(
+            {
+              organization: organizationId,
+              project,
+              workspace: file.workspace!,
+              item: requestGroup,
+            },
+            {
+              shouldNavigate: true,
+              asRunner: true,
+            },
+          ),
+      },
+      {
         id: 'delete',
         label: 'Delete',
         isDanger: true,
@@ -1900,7 +1913,7 @@ const Component = () => {
   };
 
   const getRequestActions = (
-    project: (Project & { gitRepository?: GitRepository }),
+    project: Project & { gitRepository?: GitRepository },
     file: InsomniaFile,
     node: ProjectSidebarTreeNode,
   ): ProjectSidebarTreeAction[] => {
@@ -2008,87 +2021,164 @@ const Component = () => {
           >
             <div className="flex flex-1 flex-col divide-y divide-solid divide-(--hl-md) overflow-hidden">
               <div className="flex flex-1 flex-col overflow-hidden">
-                <div className="sticky top-0 z-10 flex items-center justify-between bg-(--color-bg) p-(--padding-sm)">
-                  <Heading className="text-xs uppercase">Projects</Heading>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      aria-label="Open Konnect Sync"
-                      onPress={() => setIsKonnectSyncModalOpen(true)}
-                      className="flex aspect-square h-6 items-center justify-center rounded-xs text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
-                    >
-                      <Icon icon="cloud" />
-                    </Button>
-                    <Button
-                      aria-label="Create new Project"
-                      onPress={() => setIsNewProjectModalOpen(true)}
-                      className="flex aspect-square h-6 items-center justify-center rounded-xs text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
-                    >
-                      <Icon icon="plus-circle" />
-                    </Button>
-                  </div>
+                <div className="sticky top-0 z-10 flex items-center justify-between border-b border-solid border-b-(--hl-md) bg-(--color-bg)">
+                  <Tabs
+                    aria-label="Project sidebar tabs"
+                    selectedKey={projectSidebarTab}
+                    onSelectionChange={key => setProjectSidebarTab(key as 'projects' | 'konnect')}
+                    className="flex"
+                  >
+                    <TabList className="scrollbar-thin flex h-(--line-height-sm) items-center overflow-x-auto">
+                      <Tab
+                        id="projects"
+                        className="flex h-full shrink-0 cursor-pointer items-center gap-2 rounded-xs px-2 py-1 text-(--hl) outline-hidden transition-colors duration-300 select-none hover:bg-(--hl-sm) hover:text-(--color-font) focus:bg-(--hl-sm) aria-selected:bg-(--hl-xs) aria-selected:text-(--color-font)"
+                      >
+                        Projects ({normalProjects.length})
+                      </Tab>
+                      <Tab
+                        id="konnect"
+                        className="flex h-full shrink-0 cursor-pointer items-center gap-2 rounded-xs px-2 py-1 text-(--hl) outline-hidden transition-colors duration-300 select-none hover:bg-(--hl-sm) hover:text-(--color-font) focus:bg-(--hl-sm) aria-selected:bg-(--hl-xs) aria-selected:text-(--color-font)"
+                      >
+                        <img src={kongLogomarkSvg} alt="" className="h-3 w-[13px] shrink-0 object-contain" />
+                        Konnect ({konnectProjects.length})
+                      </Tab>
+                    </TabList>
+                  </Tabs>
                 </div>
-                <div className="flex-1 overflow-y-auto overflow-x-hidden py-1">
-                  <ProjectSidebarTree
-                    projects={orderedProjectsWithPresence}
-                    projectFilesByProjectId={projectFilesWithRemoteByProjectId}
-                    collectionTreeByWorkspaceId={collectionTreeByWorkspaceId}
-                    workspaceScopeOrder={workspaceScopeOrder}
-                    workspaceOrderByProjectId={workspaceOrderMap}
-                    workspaceScopeIcon={workspaceScopeIcon}
-                    expandedProjectIds={expandedProjectIdList}
-                    expandedCollectionKeys={expandedCollectionKeyList}
-                    expandedRequestGroupKeys={expandedRequestGroupKeyList}
-                    activeProjectId={activeProject?._id}
-                    activeWorkspaceId={workspaceId}
-                    activeRequestId={requestId}
-                    activeRequestGroupId={requestGroupId}
-                    onToggleProjectExpanded={toggleProjectExpanded}
-                    onToggleCollectionExpanded={toggleCollectionExpanded}
-                    onToggleRequestGroupExpanded={toggleRequestGroupExpanded}
-                    onOpenProject={project => navigate(`/organization/${organizationId}/project/${project._id}`)}
-                    onOpenWorkspace={(project, file, withTab) => openFileFromTree(project, file, withTab)}
-                    onOpenCollectionNode={(project, file, node, withTab) => {
-                      if (!file.workspace) {
-                        return;
+                <div className="flex-1 overflow-x-hidden overflow-y-auto py-1">
+                  {projectSidebarTab === 'projects' && (
+                    <div className="flex items-start gap-1 px-2 pt-2 pb-1">
+                      <SearchField
+                        aria-label="Filter projects"
+                        className="group relative flex flex-1"
+                        value={projectFilter || ''}
+                        onChange={value => setProjectFilter(value)}
+                      >
+                        <Input
+                          placeholder="Filter"
+                          className="h-[22.75px] w-full rounded-xs border border-solid border-(--hl-sm) bg-(--color-bg) py-1 pr-7 pl-2 text-(--color-font) transition-colors placeholder:italic focus:ring-1 focus:ring-(--hl-md) focus:outline-hidden"
+                        />
+                      </SearchField>
+                      <Button
+                        aria-label="Create new Project"
+                        onPress={() => setIsNewProjectModalOpen(true)}
+                        className="flex h-[22.75px] items-center gap-1 rounded-xs border border-solid border-(--hl-md) px-2 text-xs text-(--color-font) hover:bg-(--hl-xs)"
+                      >
+                        <Icon icon="plus" />
+                        <span>New Project</span>
+                      </Button>
+                    </div>
+                  )}
+                  {projectSidebarTab === 'konnect' && showKonnectAuthBanner && (
+                    <div className="mx-2 mt-2 rounded-xs border border-solid border-[#8a5a00] bg-[#5a3b00]/20 px-2 py-1 text-xs text-[#ffd27a]">
+                      Konnect access token is invalid or expired. Check your token and reconnect from Settings.
+                    </div>
+                  )}
+                  {projectSidebarTab === 'konnect' && !showKonnectPromoEmptyState && (
+                    <div className="flex items-start gap-1 px-2 pt-2 pb-1">
+                      <SearchField
+                        aria-label="Filter Konnect projects"
+                        className="group relative flex flex-1"
+                        value={konnectProjectFilter || ''}
+                        onChange={value => setKonnectProjectFilter(value)}
+                      >
+                        <Input
+                          placeholder="Filter"
+                          className="h-[22.75px] w-full rounded-xs border border-solid border-(--hl-sm) bg-(--color-bg) py-1 pr-7 pl-2 text-(--color-font) transition-colors placeholder:italic focus:ring-1 focus:ring-(--hl-md) focus:outline-hidden"
+                        />
+                      </SearchField>
+                      <Button
+                        aria-label="Sync Konnect projects"
+                        onPress={syncAllKonnectProjects}
+                        isDisabled={konnectSyncFetcher.state !== 'idle'}
+                        className="flex h-[22.75px] items-center gap-1 rounded-xs border border-solid border-(--hl-md) px-2 text-xs text-(--color-font) hover:bg-(--hl-xs) disabled:opacity-50"
+                      >
+                        <Icon icon="sync" />
+                        <span>Sync</span>
+                      </Button>
+                      <Button
+                        aria-label="Konnect settings"
+                        onPress={() => setIsKonnectSyncModalOpen(true)}
+                        className="flex h-[22.75px] items-center gap-1 rounded-xs border border-solid border-(--hl-md) px-2 text-xs text-(--color-font) hover:bg-(--hl-xs)"
+                      >
+                        <Icon icon="cog" />
+                        <span>Settings</span>
+                      </Button>
+                    </div>
+                  )}
+                  {projectSidebarTab === 'konnect' && showKonnectPromoEmptyState ? (
+                    <KonnectEmptyStateCard onConfigure={() => setIsKonnectSyncModalOpen(true)} />
+                  ) : (
+                    <ProjectSidebarTree
+                      projects={visibleProjects}
+                      projectFilesByProjectId={projectFilesWithRemoteByProjectId}
+                      collectionTreeByWorkspaceId={collectionTreeByWorkspaceId}
+                      workspaceScopeOrder={workspaceScopeOrder}
+                      workspaceOrderByProjectId={workspaceOrderMap}
+                      workspaceScopeIcon={workspaceScopeIcon}
+                      expandedProjectIds={expandedProjectIdList}
+                      expandedCollectionKeys={expandedCollectionKeyList}
+                      expandedRequestGroupKeys={expandedRequestGroupKeyList}
+                      activeProjectId={activeProject?._id}
+                      activeWorkspaceId={workspaceId}
+                      activeRequestId={requestId}
+                      activeRequestGroupId={requestGroupId}
+                      onToggleProjectExpanded={toggleProjectExpanded}
+                      onToggleCollectionExpanded={toggleCollectionExpanded}
+                      onToggleRequestGroupExpanded={toggleRequestGroupExpanded}
+                      onOpenProject={project => {
+                        if (projectSidebarTab === 'konnect' && isKonnectProject(project)) {
+                          validateKonnectConnection();
+                        }
+                        navigate(`/organization/${organizationId}/project/${project._id}`);
+                      }}
+                      onOpenWorkspace={(project, file, withTab) => openFileFromTree(project, file, withTab)}
+                      onOpenCollectionNode={(project, file, node, withTab) => {
+                        if (!file.workspace) {
+                          return;
+                        }
+                        openCollectionTreeNode({ project, workspace: file.workspace, node, withTab });
+                      }}
+                      isPrimaryClickModifier={isPrimaryClickModifier}
+                      getProjectIcon={project => getDefaultProjectIcon(project)}
+                      renderProjectIcon={project =>
+                        renderKonnectProjectIcon(project) || <Icon icon={getDefaultProjectIcon(project)} />
                       }
-                      openCollectionTreeNode({ project, workspace: file.workspace, node, withTab });
-                    }}
-                    isPrimaryClickModifier={isPrimaryClickModifier}
-                    getProjectIcon={project => getDefaultProjectIcon(project)}
-                    renderProjectIcon={project => renderKonnectProjectIcon(project) || <Icon icon={getDefaultProjectIcon(project)} />}
-                    renderProjectMeta={project =>
-                      project.presence.length > 0 || (project.konnect?.source === 'konnect' && project.konnect.connected) ? (
-                        <div className="flex items-center gap-1">
-                          {project.konnect?.source === 'konnect' && project.konnect.connected && (
-                            <TooltipTrigger>
-                              <div className="flex h-5 w-5 items-center justify-center rounded-xs text-(--hl)">
-                                <Icon icon="cloud" />
-                              </div>
-                              <Tooltip
-                                placement="top"
-                                offset={4}
-                                className="max-h-[85vh] max-w-xs overflow-y-auto rounded-md border border-solid border-(--hl-sm) bg-(--color-bg) px-4 py-2 text-sm text-(--color-font) shadow-lg select-none focus:outline-hidden"
-                              >
-                                Connected to Konnect cloud source
-                              </Tooltip>
-                            </TooltipTrigger>
-                          )}
-                          {project.presence.length > 0 ? (
-                            <AvatarGroup size="small" maxAvatars={3} items={project.presence} />
-                          ) : null}
-                        </div>
-                      ) : null
-                    }
-                    getRequestMethodBadgeClass={getRequestMethodBadgeClass}
-                    getRequestMethodLabel={method => getMethodShortHand({ method } as Request)}
-                    getProjectActions={getProjectActions}
-                    getWorkspaceActions={getWorkspaceActions}
-                    getCollectionActions={getCollectionActions}
-                    getFolderActions={getFolderActions}
-                    getRequestActions={getRequestActions}
-                    onValidDrop={handleValidTreeDrop}
-                    onInvalidDrop={handleInvalidTreeDrop}
-                  />
+                      renderProjectMeta={project =>
+                        project.presence.length > 0 ||
+                        (project.konnect?.source === 'konnect' && project.konnect.connected) ? (
+                          <div className="flex items-center gap-1">
+                            {project.konnect?.source === 'konnect' && project.konnect.connected && (
+                              <TooltipTrigger>
+                                <div className="flex h-5 w-5 items-center justify-center rounded-xs text-(--hl)">
+                                  <Icon icon="cloud" />
+                                </div>
+                                <Tooltip
+                                  placement="top"
+                                  offset={4}
+                                  className="max-h-[85vh] max-w-xs overflow-y-auto rounded-md border border-solid border-(--hl-sm) bg-(--color-bg) px-4 py-2 text-sm text-(--color-font) shadow-lg select-none focus:outline-hidden"
+                                >
+                                  Connected to Konnect cloud source
+                                </Tooltip>
+                              </TooltipTrigger>
+                            )}
+                            {project.presence.length > 0 ? (
+                              <AvatarGroup size="small" maxAvatars={3} items={project.presence} />
+                            ) : null}
+                          </div>
+                        ) : null
+                      }
+                      getRequestMethodBadgeClass={getRequestMethodBadgeClass}
+                      getRequestMethodLabel={method => getMethodShortHand({ method } as Request)}
+                      getProjectActions={getProjectActions}
+                      getWorkspaceActions={getWorkspaceActions}
+                      getCollectionActions={getCollectionActions}
+                      getFolderActions={getFolderActions}
+                      getRequestActions={getRequestActions}
+                      onValidDrop={handleValidTreeDrop}
+                      onInvalidDrop={handleInvalidTreeDrop}
+                    />
+                  )}
                 </div>
               </div>
               {activeProject && (
@@ -2101,12 +2191,7 @@ const Component = () => {
                     />
                   )}
                   {isLocalProject(activeProject) && !isGitProject(activeProject) && <LocalProjectBar />}
-                  {isRemoteProject(activeProject) &&
-                    (activeWorkspace ? (
-                      <SyncDropdown key={activeWorkspace._id} workspace={activeWorkspace} project={activeProject} />
-                    ) : (
-                      <CloudSyncProjectBar />
-                    ))}
+                  {isRemoteProject(activeProject) && <CloudSyncProjectBar />}
                 </>
               )}
               {!isLearningFeatureDismissed && learningFeature?.active && (
@@ -2187,13 +2272,7 @@ const Component = () => {
                         {getProjectStorageTypeLabel(storageRules)}.
                       </p>
                       <Button
-                        onPress={() => {
-                          if (activeProject) {
-                            setProjectSettingsTarget(
-                              projectsWithPresence.find(project => project._id === activeProject._id) || activeProject,
-                            );
-                          }
-                        }}
+                        onPress={() => setIsUpdateProjectModalOpen(true)}
                         className="flex items-center justify-center rounded-xs border border-solid border-white px-2 py-1"
                       >
                         Update
@@ -2481,16 +2560,12 @@ const Component = () => {
             organizationId={organizationId}
           />
         )}
-        {projectSettingsTarget && (
+        {isUpdateProjectModalOpen && (
           <ProjectModal
-            isOpen={Boolean(projectSettingsTarget)}
-            onOpenChange={isOpen => {
-              if (!isOpen) {
-                setProjectSettingsTarget(null);
-              }
-            }}
-            project={projectSettingsTarget}
-            gitRepository={projectSettingsTarget.gitRepository}
+            isOpen={isUpdateProjectModalOpen}
+            onOpenChange={setIsUpdateProjectModalOpen}
+            project={activeProject}
+            gitRepository={activeProjectGitRepository || undefined}
             storageRules={storageRules}
           />
         )}

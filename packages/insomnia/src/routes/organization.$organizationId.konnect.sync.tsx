@@ -17,6 +17,7 @@ import {
   listRoutes,
   listServices,
 } from '~/ui/konnect/konnect-api';
+import { isKonnectAuthErrorMessage } from '~/ui/konnect/sidebar-state';
 import { invariant } from '~/utils/invariant';
 import { createFetcherSubmitHook } from '~/utils/router';
 
@@ -37,7 +38,6 @@ const routeRequestId = (controlPlaneId: string, routeId: string) =>
   `${REQUEST_PREFIX}${normalizeId(controlPlaneId)}_${normalizeId(routeId)}`;
 
 const isKonnectProject = (project: Project) => project.konnect?.source === 'konnect';
-const isKonnectAuthError = (message: string) => /^401\b|^403\b/.test(message.trim());
 
 function cleanRoutePath(path: string) {
   let next = path.startsWith('~') ? path.slice(1) : path;
@@ -391,6 +391,30 @@ export async function clientAction({ request, params }: any) {
     };
   }
 
+  if (action === 'validate') {
+    const pat = body?.pat as string;
+    const region = body?.region as KonnectRegion;
+
+    invariant(typeof pat === 'string' && pat.trim().length > 0, 'PAT is required');
+    invariant(region === 'global' || region === 'us' || region === 'eu' || region === 'au', 'Region is required');
+
+    try {
+      await listControlPlanes({ pat, region });
+      return {
+        ok: true,
+        action: 'validate',
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Konnect token validation failed';
+      return {
+        ok: false,
+        action: 'validate',
+        error: errorMessage,
+        errorType: isKonnectAuthErrorMessage(errorMessage) ? 'auth' : 'unknown',
+      };
+    }
+  }
+
   const pat = body?.pat as string;
   const region = body?.region as KonnectRegion;
 
@@ -552,7 +576,7 @@ export async function clientAction({ request, params }: any) {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Konnect sync failed';
 
-    if (isKonnectAuthError(errorMessage)) {
+    if (isKonnectAuthErrorMessage(errorMessage)) {
       const projects = await database.find<Project>(models.project.type, { parentId: organizationId });
       await Promise.all(
         projects.filter(isKonnectProject).map(project =>
@@ -588,14 +612,16 @@ export const useKonnectSyncActionFetcher = createFetcherSubmitHook(
       region,
     }: {
       organizationId: string;
-      action?: 'sync' | 'disconnect';
+      action?: 'sync' | 'disconnect' | 'validate';
       pat?: string;
       region?: KonnectRegion;
     }) => {
       const payload =
         action === 'disconnect'
           ? { action: 'disconnect' }
-          : { action: 'sync', pat, region };
+          : action === 'validate'
+            ? { action: 'validate', pat, region }
+            : { action: 'sync', pat, region };
 
       return submit(JSON.stringify(payload), {
         method: 'POST',
