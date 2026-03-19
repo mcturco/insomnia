@@ -1,13 +1,31 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Button, Dialog, Heading, Input, Label, Modal, ModalOverlay, Select, SelectValue, TextField } from 'react-aria-components';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Button,
+  Dialog,
+  Heading,
+  Input,
+  Label,
+  ListBox,
+  ListBoxItem,
+  Modal,
+  ModalOverlay,
+  Popover,
+  Select,
+  SelectValue,
+  TextField,
+} from 'react-aria-components';
+import { useRevalidator } from 'react-router';
 
-import { useKonnectSyncActionFetcher, showKonnectSyncResultToast } from '~/routes/organization.$organizationId.konnect.sync';
+import {
+  showKonnectSyncResultToast,
+  useKonnectSyncActionFetcher,
+} from '~/routes/organization.$organizationId.konnect.sync';
 import { type KonnectRegion } from '~/ui/konnect/konnect-api';
-import { clearKonnectConnection, loadKonnectConnection, maskPat, saveKonnectConnection } from '~/ui/konnect/storage';
+import { clearKonnectConnection, loadKonnectConnection, saveKonnectConnection } from '~/ui/konnect/storage';
 
 import { Icon } from '../icon';
 
-const REGION_OPTIONS: Array<{ key: KonnectRegion; label: string }> = [
+const REGION_OPTIONS: { key: KonnectRegion; label: string }[] = [
   { key: 'global', label: 'Global' },
   { key: 'us', label: 'US' },
   { key: 'eu', label: 'EU' },
@@ -26,8 +44,9 @@ export const KonnectSyncModal = ({
   const storedConnection = useMemo(() => loadKonnectConnection(organizationId), [organizationId]);
   const [pat, setPat] = useState(storedConnection?.pat || '');
   const [region, setRegion] = useState<KonnectRegion>(storedConnection?.region || 'global');
-  const [showRawPat, setShowRawPat] = useState(false);
   const syncFetcher = useKonnectSyncActionFetcher({ key: `konnect-sync:${organizationId}` });
+  const revalidator = useRevalidator();
+  const lastHandledResultRef = useRef<unknown>(null);
   const safePat = typeof pat === 'string' ? pat : '';
 
   useEffect(() => {
@@ -38,13 +57,17 @@ export const KonnectSyncModal = ({
     const latestConnection = loadKonnectConnection(organizationId);
     setPat(latestConnection?.pat || '');
     setRegion(latestConnection?.region || 'global');
-    setShowRawPat(false);
   }, [isOpen, organizationId]);
 
   useEffect(() => {
     if (!syncFetcher.data || syncFetcher.state !== 'idle') {
       return;
     }
+
+    if (lastHandledResultRef.current === syncFetcher.data) {
+      return;
+    }
+    lastHandledResultRef.current = syncFetcher.data;
 
     if (syncFetcher.data.ok && syncFetcher.data.action === 'sync') {
       const current = loadKonnectConnection(organizationId);
@@ -57,6 +80,7 @@ export const KonnectSyncModal = ({
         });
       }
       showKonnectSyncResultToast(syncFetcher.data);
+      revalidator.revalidate();
       return;
     }
 
@@ -64,8 +88,14 @@ export const KonnectSyncModal = ({
       clearKonnectConnection(organizationId);
       setPat('');
       setRegion('global');
+      revalidator.revalidate();
+      return;
     }
-  }, [organizationId, syncFetcher.data, syncFetcher.state]);
+
+    if (syncFetcher.data?.action === 'sync') {
+      revalidator.revalidate();
+    }
+  }, [organizationId, revalidator, syncFetcher.data, syncFetcher.state]);
 
   const onSync = () => {
     const trimmedPat = safePat.trim();
@@ -73,11 +103,16 @@ export const KonnectSyncModal = ({
       return;
     }
 
+    const current = loadKonnectConnection(organizationId);
+    const canReuseSuccessfulSyncState =
+      current?.pat === trimmedPat && current.region === region && current.lastSyncStatus === 'success';
+
     saveKonnectConnection(organizationId, {
       pat: trimmedPat,
       region,
-      lastSyncAt: null,
-      lastSyncStatus: 'idle',
+      lastSyncAt: canReuseSuccessfulSyncState ? (current?.lastSyncAt ?? null) : null,
+      lastSyncStatus: canReuseSuccessfulSyncState ? 'success' : 'idle',
+      lastSyncError: undefined,
     });
 
     syncFetcher.submit({
@@ -106,12 +141,15 @@ export const KonnectSyncModal = ({
       className="fixed top-0 right-0 bottom-0 left-0 z-10 flex items-start justify-center bg-black/30 pt-[70px]"
     >
       <Modal className="flex max-h-[calc(var(--visual-viewport-height)-140px)] w-full max-w-2xl flex-col overflow-hidden rounded-md border border-solid border-(--hl-sm) bg-(--color-bg) text-(--color-font)">
-        <Dialog aria-label="Konnect Sync Modal" className="grid flex-1 grid-rows-[min-content_1fr] gap-4 overflow-hidden p-10 outline-hidden">
+        <Dialog
+          aria-label="Konnect Sync Modal"
+          className="grid flex-1 grid-rows-[min-content_1fr] gap-4 overflow-hidden p-10 outline-hidden"
+        >
           {({ close }) => (
             <>
               <div className="flex items-center justify-between gap-2">
                 <Heading slot="title" className="text-2xl">
-                  Konnect Sync (Prototype)
+                  Konnect Sync
                 </Heading>
                 <Button
                   className="flex aspect-square h-6 shrink-0 items-center justify-center rounded-xs text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
@@ -143,45 +181,28 @@ export const KonnectSyncModal = ({
                     <SelectValue>{({ selectedText }) => selectedText || 'Select region'}</SelectValue>
                     <Icon icon="caret-down" />
                   </Button>
-                  <div className="mt-1 rounded-md border border-solid border-(--hl-sm) bg-(--color-bg) p-1">
-                    {REGION_OPTIONS.map(option => (
-                      <Button
-                        key={option.key}
-                        onPress={() => setRegion(option.key)}
-                        className={`flex w-full items-center rounded-xs px-2 py-1 text-left text-sm ${region === option.key ? 'bg-(--hl-sm)' : 'hover:bg-(--hl-xs)'}`}
-                      >
-                        {option.label}
-                      </Button>
-                    ))}
-                  </div>
+                  <Popover className="min-w-(--trigger-width) rounded-md border border-solid border-(--hl-sm) bg-(--color-bg) p-1 shadow-lg">
+                    <ListBox aria-label="Konnect regions" items={REGION_OPTIONS} className="outline-hidden">
+                      {option => (
+                        <ListBoxItem
+                          id={option.key}
+                          textValue={option.label}
+                          className="cursor-default rounded-xs px-2 py-1 text-sm text-(--color-font) outline-hidden transition-colors hover:bg-(--hl-xs) focus:bg-(--hl-sm) aria-selected:bg-(--hl-sm)"
+                        >
+                          {option.label}
+                        </ListBoxItem>
+                      )}
+                    </ListBox>
+                  </Popover>
                 </Select>
 
-                {effectiveConnection && (
-                  <div className="rounded-xs border border-solid border-(--hl-sm) p-3 text-sm">
-                    <div className="mb-1 flex items-center gap-2">
-                      <Icon icon="cloud" />
-                      <span>Current connection</span>
-                    </div>
-                    <div className="text-(--hl)">Region: {effectiveConnection.region.toUpperCase()}</div>
-                    <div className="text-(--hl)">
-                      PAT: {showRawPat ? effectiveConnection.pat : maskPat(effectiveConnection.pat)}
-                      <Button
-                        onPress={() => setShowRawPat(value => !value)}
-                        className="ml-2 rounded-xs px-2 py-0.5 text-xs hover:bg-(--hl-xs)"
-                      >
-                        {showRawPat ? 'Hide' : 'Show'}
-                      </Button>
-                    </div>
-                    <div className="text-(--hl)">
-                      Last sync:{' '}
-                      {effectiveConnection.lastSyncAt
-                        ? new Date(effectiveConnection.lastSyncAt).toLocaleString()
-                        : 'Never'}
-                    </div>
-                  </div>
-                )}
-
                 <div className="flex items-center justify-end gap-2 pt-2">
+                  <div className="mr-auto text-xs text-(--hl)">
+                    Last synced:{' '}
+                    {effectiveConnection?.lastSyncAt
+                      ? new Date(effectiveConnection.lastSyncAt).toLocaleString()
+                      : 'Never'}
+                  </div>
                   <Button
                     onPress={onDisconnect}
                     isDisabled={!effectiveConnection || busy}

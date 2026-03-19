@@ -9,6 +9,7 @@ export const type = 'Project';
 export const prefix = 'proj';
 export const canDuplicate = false;
 export const canSync = false;
+export const optionalKeys = ['konnect'];
 
 export const SCRATCHPAD_PROJECT_ID = `${prefix}_scratchpad`;
 
@@ -35,6 +36,7 @@ interface CommonProject {
     source: 'konnect';
     controlPlaneId: string;
     region: 'global' | 'us' | 'eu' | 'au';
+    gatewayType?: 'control-plane-group' | 'dedicated-cloud' | 'event' | 'kong-ingress-controller' | 'self-managed' | 'serverless';
     connected: boolean;
     syncStatus?: 'idle' | 'success' | 'error';
     lastSyncedAt?: number;
@@ -68,6 +70,7 @@ export function init(): Partial<Project> {
     remoteId: null, // `null` is necessary for the model init logic to work properly
     gitRepositoryId: null,
     mcpStdioAccess: false,
+    konnect: undefined,
   };
 }
 

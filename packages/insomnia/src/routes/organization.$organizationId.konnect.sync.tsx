@@ -2,18 +2,20 @@ import { href } from 'react-router';
 
 import { database } from '~/common/database';
 import * as models from '~/models';
-import { getKVPairFromData, type Environment } from '~/models/environment';
+import { type Environment,getKVPairFromData } from '~/models/environment';
 import { type Project } from '~/models/project';
 import type { Workspace } from '~/models/workspace';
 import { showToast } from '~/ui/components/toast-notification';
 import {
   buildBaseUrl,
   buildBaseUrlFromService,
+  detectGatewayType,
   getControlPlane,
+  type KonnectGatewayType,
+  type KonnectRegion,
   listControlPlanes,
   listRoutes,
   listServices,
-  type KonnectRegion,
 } from '~/ui/konnect/konnect-api';
 import { invariant } from '~/utils/invariant';
 import { createFetcherSubmitHook } from '~/utils/router';
@@ -35,6 +37,7 @@ const routeRequestId = (controlPlaneId: string, routeId: string) =>
   `${REQUEST_PREFIX}${normalizeId(controlPlaneId)}_${normalizeId(routeId)}`;
 
 const isKonnectProject = (project: Project) => project.konnect?.source === 'konnect';
+const isKonnectAuthError = (message: string) => /^401\b|^403\b/.test(message.trim());
 
 function cleanRoutePath(path: string) {
   let next = path.startsWith('~') ? path.slice(1) : path;
@@ -66,8 +69,8 @@ async function upsertBaseEnvironment({
   baseUrl: string;
 }) {
   const baseEnvironment = await models.environment.getOrCreateForParentId(workspaceId);
-  const nextData = {
-    ...(baseEnvironment.data || {}),
+  const nextData: Record<string, any> = {
+    ...baseEnvironment.data,
     base_url: baseUrl,
   };
   delete nextData.baseUrl;
@@ -185,11 +188,13 @@ async function upsertKonnectProject({
   controlPlaneId,
   controlPlaneName,
   region,
+  gatewayType,
 }: {
   organizationId: string;
   controlPlaneId: string;
   controlPlaneName: string;
   region: KonnectRegion;
+  gatewayType?: KonnectGatewayType;
 }) {
   const projectId = controlPlaneProjectId(controlPlaneId);
   const existingProject = await models.project.getById(projectId);
@@ -202,6 +207,7 @@ async function upsertKonnectProject({
       source: 'konnect' as const,
       controlPlaneId,
       region,
+      gatewayType: gatewayType || existingProject?.konnect?.gatewayType,
       connected: true,
       syncStatus: 'success' as const,
       lastSyncedAt: Date.now(),
@@ -370,6 +376,7 @@ export async function clientAction({ request, params }: any) {
             source: 'konnect',
             controlPlaneId: project.konnect!.controlPlaneId,
             region: project.konnect!.region,
+            gatewayType: project.konnect?.gatewayType,
             connected: false,
             syncStatus: 'idle',
             lastSyncedAt: project.konnect?.lastSyncedAt,
@@ -390,153 +397,186 @@ export async function clientAction({ request, params }: any) {
   invariant(typeof pat === 'string' && pat.trim().length > 0, 'PAT is required');
   invariant(region === 'global' || region === 'us' || region === 'eu' || region === 'au', 'Region is required');
 
-  const controlPlanes = await listControlPlanes({ pat, region });
-  const expectedControlPlaneProjectIds = new Set<string>();
+  try {
+    const controlPlanes = await listControlPlanes({ pat, region });
+    const expectedControlPlaneProjectIds = new Set<string>();
 
-  let syncedProjects = 0;
-  let syncedFolders = 0;
-  let syncedRequests = 0;
+    let syncedProjects = 0;
+    let syncedFolders = 0;
+    let syncedRequests = 0;
 
-  for (const controlPlane of controlPlanes) {
-    const controlPlaneDetails = await getControlPlane({
-      pat,
-      region,
-      controlPlaneId: controlPlane.id,
-    }).catch(() => controlPlane);
+    for (const controlPlane of controlPlanes) {
+      const controlPlaneDetails = await getControlPlane({
+        pat,
+        region,
+        controlPlaneId: controlPlane.id,
+      }).catch(() => controlPlane);
 
-    expectedControlPlaneProjectIds.add(controlPlaneProjectId(controlPlane.id));
+      expectedControlPlaneProjectIds.add(controlPlaneProjectId(controlPlane.id));
 
-    const project = await upsertKonnectProject({
-      organizationId,
-      controlPlaneId: controlPlane.id,
-      controlPlaneName: controlPlane.name,
-      region,
-    });
-
-    const workspace = await upsertCollectionWorkspace({
-      projectId: project._id,
-      controlPlaneId: controlPlane.id,
-      controlPlaneName: controlPlane.name,
-    });
-    const projectEnvironmentWorkspace = await upsertProjectEnvironmentWorkspace({
-      projectId: project._id,
-      controlPlaneId: controlPlane.id,
-      controlPlaneName: controlPlane.name,
-    });
-
-    const [services, routes] = await Promise.all([
-      listServices({ pat, region, controlPlaneId: controlPlane.id }),
-      listRoutes({ pat, region, controlPlaneId: controlPlane.id }),
-    ]);
-    const baseUrl = buildBaseUrl(controlPlaneDetails) || buildBaseUrlFromService(services[0]);
-    await migrateLegacyBaseUrlReferences({
-      controlPlaneId: controlPlane.id,
-    });
-
-    await upsertBaseEnvironment({
-      workspaceId: workspace._id,
-      baseUrl,
-    });
-    const projectBaseEnvironment = await upsertBaseEnvironment({
-      workspaceId: projectEnvironmentWorkspace._id,
-      baseUrl,
-    });
-    await ensureWorkspaceUsesKonnectProjectEnvironment({
-      workspaceId: workspace._id,
-      konnectBaseEnvironmentId: projectBaseEnvironment._id,
-    });
-
-    const serviceById = new Map(services.map(service => [service.id, service]));
-    const routesByService = new Map<string, typeof routes>();
-
-    for (const route of routes) {
-      const serviceId = route.service?.id || '__noservice__';
-      const current = routesByService.get(serviceId) || [];
-      current.push(route);
-      routesByService.set(serviceId, current);
-    }
-
-    const expectedFolderIds = new Set<string>();
-    const expectedRequestIds = new Set<string>();
-    let folderIndex = 0;
-    let requestIndex = 0;
-
-    for (const [serviceId, serviceRoutes] of routesByService.entries()) {
-      const folderId = serviceId === '__noservice__' ? noServiceFolderId(controlPlane.id) : serviceFolderId(controlPlane.id, serviceId);
-      expectedFolderIds.add(folderId);
-
-      const folderName =
-        serviceId === '__noservice__'
-          ? '(No Service)'
-          : serviceById.get(serviceId)?.name || '(Unnamed Service)';
-
-      await upsertServiceFolder({
-        folderId,
-        parentId: workspace._id,
-        name: folderName,
-        order: folderIndex++,
+      const project = await upsertKonnectProject({
+        organizationId,
+        controlPlaneId: controlPlane.id,
+        controlPlaneName: controlPlane.name,
+        region,
+        gatewayType: detectGatewayType(controlPlaneDetails) || detectGatewayType(controlPlane),
       });
 
-      for (const route of serviceRoutes) {
-        const method = (route.methods?.[0] || 'GET').toUpperCase();
-        const path = cleanRoutePath(route.paths?.[0] || '/');
-        const requestId = routeRequestId(controlPlane.id, route.id);
-        expectedRequestIds.add(requestId);
+      const workspace = await upsertCollectionWorkspace({
+        projectId: project._id,
+        controlPlaneId: controlPlane.id,
+        controlPlaneName: controlPlane.name,
+      });
+      const projectEnvironmentWorkspace = await upsertProjectEnvironmentWorkspace({
+        projectId: project._id,
+        controlPlaneId: controlPlane.id,
+        controlPlaneName: controlPlane.name,
+      });
 
-        await upsertRouteRequest({
-          requestId,
-          parentId: folderId,
-          name: defaultRouteName({
-            routeName: route.name,
-            method,
-            path,
-          }),
-          method,
-          url: `{{ base_url }}${path}`,
-          order: requestIndex++,
-        });
+      const [services, routes] = await Promise.all([
+        listServices({ pat, region, controlPlaneId: controlPlane.id }),
+        listRoutes({ pat, region, controlPlaneId: controlPlane.id }),
+      ]);
+      const baseUrl = buildBaseUrl(controlPlaneDetails) || buildBaseUrlFromService(services[0]);
+      await migrateLegacyBaseUrlReferences({
+        controlPlaneId: controlPlane.id,
+      });
+
+      await upsertBaseEnvironment({
+        workspaceId: workspace._id,
+        baseUrl,
+      });
+      const projectBaseEnvironment = await upsertBaseEnvironment({
+        workspaceId: projectEnvironmentWorkspace._id,
+        baseUrl,
+      });
+      await ensureWorkspaceUsesKonnectProjectEnvironment({
+        workspaceId: workspace._id,
+        konnectBaseEnvironmentId: projectBaseEnvironment._id,
+      });
+
+      const serviceById = new Map(services.map(service => [service.id, service]));
+      const routesByService = new Map<string, typeof routes>();
+
+      for (const route of routes) {
+        const serviceId = route.service?.id || '__noservice__';
+        const current = routesByService.get(serviceId) || [];
+        current.push(route);
+        routesByService.set(serviceId, current);
       }
+
+      const expectedFolderIds = new Set<string>();
+      const expectedRequestIds = new Set<string>();
+      let folderIndex = 0;
+      let requestIndex = 0;
+
+      for (const [serviceId, serviceRoutes] of routesByService.entries()) {
+        const folderId = serviceId === '__noservice__' ? noServiceFolderId(controlPlane.id) : serviceFolderId(controlPlane.id, serviceId);
+        expectedFolderIds.add(folderId);
+
+        const folderName =
+          serviceId === '__noservice__'
+            ? '(No Service)'
+            : serviceById.get(serviceId)?.name || '(Unnamed Service)';
+
+        await upsertServiceFolder({
+          folderId,
+          parentId: workspace._id,
+          name: folderName,
+          order: folderIndex++,
+        });
+
+        for (const route of serviceRoutes) {
+          const method = (route.methods?.[0] || 'GET').toUpperCase();
+          const path = cleanRoutePath(route.paths?.[0] || '/');
+          const requestId = routeRequestId(controlPlane.id, route.id);
+          expectedRequestIds.add(requestId);
+
+          await upsertRouteRequest({
+            requestId,
+            parentId: folderId,
+            name: defaultRouteName({
+              routeName: route.name,
+              method,
+              path,
+            }),
+            method,
+            url: `{{ base_url }}${path}`,
+            order: requestIndex++,
+          });
+        }
+      }
+
+      await cleanupStaleKonnectData({
+        controlPlaneId: controlPlane.id,
+        expectedFolderIds,
+        expectedRequestIds,
+      });
+
+      syncedProjects += 1;
+      syncedFolders += expectedFolderIds.size;
+      syncedRequests += expectedRequestIds.size;
     }
 
-    await cleanupStaleKonnectData({
-      controlPlaneId: controlPlane.id,
-      expectedFolderIds,
-      expectedRequestIds,
-    });
+    if (controlPlanes.length > 0) {
+      const allOrganizationProjects = await database.find<Project>(models.project.type, { parentId: organizationId });
+      await Promise.all(
+        allOrganizationProjects
+          .filter(isKonnectProject)
+          .filter(project => !expectedControlPlaneProjectIds.has(project._id))
+          .map(project =>
+            models.project.update(project, {
+              konnect: {
+                source: 'konnect',
+                controlPlaneId: project.konnect!.controlPlaneId,
+                region: project.konnect!.region,
+                gatewayType: project.konnect?.gatewayType,
+                connected: false,
+                syncStatus: 'success',
+                lastSyncedAt: Date.now(),
+              },
+            }),
+          ),
+      );
+    }
 
-    syncedProjects += 1;
-    syncedFolders += expectedFolderIds.size;
-    syncedRequests += expectedRequestIds.size;
+    return {
+      ok: true,
+      action: 'sync',
+      summary: {
+        projects: syncedProjects,
+        folders: syncedFolders,
+        requests: syncedRequests,
+      },
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Konnect sync failed';
+
+    if (isKonnectAuthError(errorMessage)) {
+      const projects = await database.find<Project>(models.project.type, { parentId: organizationId });
+      await Promise.all(
+        projects.filter(isKonnectProject).map(project =>
+          models.project.update(project, {
+            konnect: {
+              source: 'konnect',
+              controlPlaneId: project.konnect!.controlPlaneId,
+              region: project.konnect!.region,
+              gatewayType: project.konnect?.gatewayType,
+              connected: false,
+              syncStatus: 'error',
+              lastSyncedAt: project.konnect?.lastSyncedAt,
+            },
+          }),
+        ),
+      );
+    }
+
+    return {
+      ok: false,
+      action: 'sync',
+      error: errorMessage,
+    };
   }
-
-  const allOrganizationProjects = await database.find<Project>(models.project.type, { parentId: organizationId });
-  await Promise.all(
-    allOrganizationProjects
-      .filter(isKonnectProject)
-      .filter(project => !expectedControlPlaneProjectIds.has(project._id))
-      .map(project =>
-        models.project.update(project, {
-          konnect: {
-            source: 'konnect',
-            controlPlaneId: project.konnect!.controlPlaneId,
-            region: project.konnect!.region,
-            connected: false,
-            syncStatus: 'success',
-            lastSyncedAt: Date.now(),
-          },
-        }),
-      ),
-  );
-
-  return {
-    ok: true,
-    action: 'sync',
-    summary: {
-      projects: syncedProjects,
-      folders: syncedFolders,
-      requests: syncedRequests,
-    },
-  };
 }
 
 export const useKonnectSyncActionFetcher = createFetcherSubmitHook(

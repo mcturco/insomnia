@@ -1,4 +1,11 @@
 export type KonnectRegion = 'global' | 'us' | 'eu' | 'au';
+export type KonnectGatewayType =
+  | 'control-plane-group'
+  | 'dedicated-cloud'
+  | 'event'
+  | 'kong-ingress-controller'
+  | 'self-managed'
+  | 'serverless';
 
 export interface KonnectProxyUrl {
   host?: string;
@@ -10,10 +17,124 @@ export interface KonnectProxyUrl {
 export interface KonnectControlPlane {
   id: string;
   name: string;
+  labels?: string[];
   config?: {
     proxy_urls?: (KonnectProxyUrl | string)[];
     proxy_url?: string;
   };
+}
+
+export function detectGatewayType(controlPlane: any): KonnectGatewayType | undefined {
+  const rawClusterType = String(controlPlane?.config?.cluster_type || '');
+  const upperClusterType = rawClusterType.toUpperCase().replace(/[\s-]+/g, '_');
+  const isCloudGateway = controlPlane?.config?.is_cloud_gateway ?? controlPlane?.config?.cloud_gateway;
+
+  // Primary mapping from /control-planes/:id config.cluster_type
+  if (upperClusterType === 'CLUSTER_TYPE_CONTROL_PLANE') {
+    return 'self-managed';
+  }
+  if (upperClusterType === 'CLUSTER_TYPE_K8S_INGRESS_CONTROLLER') {
+    return 'kong-ingress-controller';
+  }
+  if (upperClusterType.startsWith('CLUSTER_TYPE_SERVERLESS')) {
+    return 'serverless';
+  }
+  if (upperClusterType === 'CLUSTER_TYPE_CLOUD_API_GATEWAY') {
+    return 'dedicated-cloud';
+  }
+  if (upperClusterType === 'CLUSTER_TYPE_CONTROL_PLANE_GROUP') {
+    // Cloud Gateway Group currently reuses serverless icon.
+    return isCloudGateway ? 'serverless' : 'control-plane-group';
+  }
+
+  const rawClusterTypeLower = rawClusterType.toLowerCase();
+  if (rawClusterTypeLower.includes('serverless')) {
+    return 'serverless';
+  }
+  if (rawClusterTypeLower.includes('ingress')) {
+    return 'kong-ingress-controller';
+  }
+  if (rawClusterTypeLower.includes('control_plane_group') || rawClusterTypeLower.includes('group')) {
+    return isCloudGateway ? 'serverless' : 'control-plane-group';
+  }
+  if (rawClusterTypeLower.includes('cloud_api_gateway') || rawClusterTypeLower.includes('cloud')) {
+    return 'dedicated-cloud';
+  }
+  if (rawClusterTypeLower.includes('control_plane')) {
+    return 'self-managed';
+  }
+
+  const normalized = JSON.stringify(controlPlane || {}).toLowerCase();
+
+  const labelValues: string[] = [];
+  const queue: any[] = [controlPlane];
+  let guard = 0;
+  while (queue.length && guard < 300) {
+    guard += 1;
+    const current = queue.shift();
+    if (!current || typeof current !== 'object') {
+      continue;
+    }
+    if (Array.isArray(current)) {
+      queue.push(...current);
+      continue;
+    }
+
+    for (const [key, value] of Object.entries(current)) {
+      const normalizedKey = key.toLowerCase();
+      if (
+        normalizedKey.includes('type') ||
+        normalizedKey.includes('kind') ||
+        normalizedKey.includes('cluster') ||
+        normalizedKey.includes('gateway') ||
+        normalizedKey.includes('deployment') ||
+        normalizedKey.includes('mode') ||
+        normalizedKey.includes('label')
+      ) {
+        if (typeof value === 'string') {
+          labelValues.push(value.toLowerCase());
+        } else if (typeof value === 'number' || typeof value === 'boolean') {
+          labelValues.push(String(value).toLowerCase());
+        }
+      }
+
+      if (value && typeof value === 'object') {
+        queue.push(value);
+      }
+    }
+  }
+
+  const composite = `${normalized}\n${labelValues.join('\n')}`;
+
+  if (
+    composite.includes('ingress') ||
+    composite.includes('kic') ||
+    composite.includes('kubernetes') ||
+    composite.includes('controller')
+  ) {
+    return 'kong-ingress-controller';
+  }
+  if (composite.includes('serverless')) {
+    return 'serverless';
+  }
+  if (composite.includes('dedicated') || composite.includes('cloud-gateway') || composite.includes('cloud gateway')) {
+    return 'dedicated-cloud';
+  }
+  if (composite.includes('event-gateway') || composite.includes('event gateway') || composite.includes('event')) {
+    return 'event';
+  }
+  if (
+    composite.includes('hybrid') ||
+    composite.includes('self-managed') ||
+    composite.includes('self managed') ||
+    composite.includes('traditional')
+  ) {
+    return 'self-managed';
+  }
+  if (composite.includes('group')) {
+    return 'control-plane-group';
+  }
+  return undefined;
 }
 
 function extractControlPlane(payload: any): KonnectControlPlane {
