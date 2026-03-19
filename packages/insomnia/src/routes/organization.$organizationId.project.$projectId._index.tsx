@@ -39,13 +39,13 @@ import { database } from '~/common/database';
 import { scopeToBgColorMap, scopeToIconMap, scopeToLabelMap, scopeToTextColorMap } from '~/common/get-workspace-label';
 import { fuzzyMatchAll, isNotNullOrUndefined } from '~/common/misc';
 import { descendingNumberSort, sortMethodMap } from '~/common/sorting';
+import type { McpRequest } from '~/insomnia-data';
 import * as models from '~/models';
 import { userSession } from '~/models';
 import type { ApiSpec } from '~/models/api-spec';
 import type { GitRepository } from '~/models/git-repository';
 import type { GrpcRequest } from '~/models/grpc-request';
 import { sortProjects } from '~/models/helpers/project';
-import type { McpRequest } from '~/models/mcp-request';
 import type { MockServer } from '~/models/mock-server';
 import { isOwnerOfOrganization, isPersonalOrganization, isScratchpadOrganizationId } from '~/models/organization';
 import {
@@ -65,6 +65,7 @@ import { useRootLoaderData } from '~/root';
 import { useOrganizationLoaderData } from '~/routes/organization';
 import { useInsomniaSyncPullRemoteFileActionFetcher } from '~/routes/organization.$organizationId.insomnia-sync.pull-remote-file';
 import { useKonnectSyncActionFetcher } from '~/routes/organization.$organizationId.konnect.sync';
+import { useProjectDeleteActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.delete';
 import { useProjectMoveWorkspaceActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.move-workspace';
 import { useProjectSidebarTreeMoveActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.sidebar-tree.move';
 import { useRequestDuplicateActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request.$requestId.duplicate';
@@ -754,7 +755,6 @@ const Component = () => {
       clearInterval(interval);
     };
   }, [konnectSyncFetcher, organizationId, projects]);
-
   // TODO(INS-1912): Remove in 12.5
   useEffect(() => {
     if (projectId) {

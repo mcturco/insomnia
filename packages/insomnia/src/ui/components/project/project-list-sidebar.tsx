@@ -6,6 +6,7 @@ import * as reactUse from 'react-use';
 import type { GitRepository } from '~/models/git-repository';
 import { isGitProject, isRemoteProject, type Project, SCRATCHPAD_PROJECT_ID } from '~/models/project';
 import { SegmentEvent } from '~/ui/analytics';
+import kongLogomarkSvg from '~/ui/components/assets/kong-logomark.svg';
 import { loadKonnectConnection } from '~/ui/konnect/storage';
 
 import { AvatarGroup } from '../avatar';
@@ -146,7 +147,7 @@ export const ProjectListSidebar = ({
               className="flex h-(--line-height-xs) w-full items-center gap-2 px-4 text-xs uppercase text-(--hl) transition-colors hover:bg-(--hl-xs)"
             >
               <Icon icon={isKonnectGroupExpanded ? 'chevron-down' : 'chevron-right'} className="h-3 w-3" />
-              <Icon icon={['fab', 'kong']} className="h-3.5 w-3.5" />
+              <img src={kongLogomarkSvg} alt="" className="h-3 w-[13px] shrink-0 object-contain" />
               <span className="truncate">Konnect Projects ({konnectProjects.length})</span>
             </Button>
             {isKonnectGroupExpanded && (
