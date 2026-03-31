@@ -1,10 +1,11 @@
 import type { IconProp } from '@fortawesome/fontawesome-svg-core';
 import type { CSSProperties, DragEvent, HTMLAttributes, ReactNode } from 'react';
 import { useState } from 'react';
-import { Button, Menu, MenuItem, MenuTrigger, Popover } from 'react-aria-components';
+import { Button, Menu, MenuItem, MenuTrigger, Popover, Tooltip, TooltipTrigger } from 'react-aria-components';
 
 import type { Workspace } from '~/models/workspace';
 import { Icon } from '~/ui/components/icon';
+import { getTimeFromNow } from '~/ui/components/time-from-now';
 
 export const PROJECT_SIDEBAR_TREE_TOKENS = {
   folderChildDepthOffset: 16,
@@ -34,7 +35,7 @@ const getRowClass = (active: boolean, dropInside: boolean, extra = '') =>
   `${ROW_BASE_CLASS} ${dropInside ? 'bg-(--hl-sm)' : active ? 'bg-(--hl-sm)' : 'hover:bg-(--hl-xs)'} ${extra}`.trim();
 
 const getLabelClass = (active: boolean, extra = '') =>
-  `${LABEL_BUTTON_BASE_CLASS} ${active ? 'text-(--color-font)' : 'text-(--hl) hover:text-(--color-font)'} ${extra}`.trim();
+  `${LABEL_BUTTON_BASE_CLASS} ${active ? 'text-(--color-font)' : 'text-[rgba(var(--color-font-rgb),0.8)] hover:text-(--color-font)'} ${extra}`.trim();
 
 type TreeNodeType = 'request-group' | 'request';
 export type ProjectSidebarTreeDragType = 'project' | 'workspace' | 'request-group' | 'request';
@@ -55,6 +56,9 @@ export interface ProjectSidebarWorkspaceFile {
   name: string;
   scope: string;
   workspace?: Workspace;
+  label?: string;
+  lastModifiedTimestamp?: number;
+  oasFormat?: string;
 }
 
 export interface ProjectSidebarTreeProject {
@@ -127,6 +131,93 @@ interface ProjectSidebarTreeProps<
 interface DropTarget {
   target: ProjectSidebarTreeDragEntity;
   position: ProjectSidebarTreeDropPosition;
+}
+
+const WORKSPACE_SCOPE_LABEL: Record<string, string> = {
+  collection: 'Collection',
+  environment: 'Environment',
+  mcp: 'MCP Client',
+  design: 'Document',
+  'mock-server': 'Mock Server',
+  unsynced: 'Unsynced',
+};
+
+const getWorkspaceScopeLabel = (scope: string) => WORKSPACE_SCOPE_LABEL[scope] || scope;
+
+const WORKSPACE_SCOPE_CHIP_CLASS: Record<string, string> = {
+  collection: 'bg-(--color-surprise) text-(--color-font-surprise)',
+  environment: 'bg-(--color-font) text-(--color-bg)',
+  mcp: 'bg-(--color-danger) text-(--color-font-danger)',
+  design: 'bg-(--color-info) text-(--color-font-info)',
+  'mock-server': 'bg-(--color-warning) text-(--color-font-warning)',
+  unsynced: 'bg-(--hl-md) text-(--color-font)',
+};
+
+const META_TEXT_CLASS = 'text-[11.375px] leading-[16.25px] text-[rgba(var(--color-font-rgb),0.8)]';
+const TITLE_TEXT_CLASS = 'text-[11.375px] leading-[16.25px] text-(--color-font) font-medium';
+const PREVIEW_CONTAINER_CLASS =
+  'max-h-[85vh] min-w-[272px] rounded-[3.9px] border border-solid border-(--hl-sm) bg-(--color-bg) px-[10.75px] py-[7.5px] text-sm shadow-[0px_10px_15px_0px_rgba(0,0,0,0.1),0px_4px_6px_0px_rgba(0,0,0,0.1)] select-none focus:outline-hidden';
+
+const getPreviewTimestampText = (file: ProjectSidebarWorkspaceFile): string | null => {
+  const timestamp = file.lastModifiedTimestamp || file.workspace?.modified || file.workspace?.created || 0;
+  return timestamp ? getTimeFromNow(timestamp, false) : null;
+};
+
+function WorkspacePreviewCard({
+  file,
+  workspaceScopeIcon,
+}: {
+  file: ProjectSidebarWorkspaceFile;
+  workspaceScopeIcon: Record<string, IconProp>;
+}) {
+  if (file.scope === 'unsynced') {
+    return (
+      <div className="flex min-w-0 flex-col gap-2">
+        <div className={`truncate ${TITLE_TEXT_CLASS}`}>{file.name}</div>
+        <div className="flex items-center gap-1">
+          <div className="flex size-5 items-center justify-center rounded-[2.6px] bg-(--hl-md) text-(--color-font)">
+            <Icon icon={workspaceScopeIcon[file.scope] || 'cloud-download'} className="w-3.5 text-[11.375px]" />
+          </div>
+          <span className={META_TEXT_CLASS}>Sync to get info</span>
+        </div>
+      </div>
+    );
+  }
+
+  const typeLabel = file.label || getWorkspaceScopeLabel(file.scope);
+  const timestampText = getPreviewTimestampText(file);
+  const typeChipClass = WORKSPACE_SCOPE_CHIP_CLASS[file.scope] || 'bg-(--hl-md) text-(--color-font)';
+  const shouldShowSpecRow = file.scope === 'design' && Boolean(file.oasFormat);
+
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <div className={`truncate ${TITLE_TEXT_CLASS}`}>{file.name}</div>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-1">
+          <div className={`flex size-5 items-center justify-center rounded-[2.6px] ${typeChipClass}`}>
+            <Icon icon={workspaceScopeIcon[file.scope] || 'file'} className="w-3.5 text-[11.375px]" />
+          </div>
+          <span className={META_TEXT_CLASS}>{typeLabel}</span>
+        </div>
+        {shouldShowSpecRow ? (
+          <div className="flex h-[16.25px] items-center gap-1">
+            <div className="flex h-4 w-5 items-center justify-center text-[rgba(var(--color-font-rgb),0.8)]">
+              <Icon icon="file" className="w-3 text-[11.375px]" />
+            </div>
+            <span className={META_TEXT_CLASS}>{file.oasFormat}</span>
+          </div>
+        ) : null}
+        {timestampText ? (
+          <div className="flex h-[16.25px] items-center gap-1">
+            <div className="flex h-4 w-5 items-center justify-center text-[rgba(var(--color-font-rgb),0.8)]">
+              <Icon icon="clock" className="w-3 text-[11.375px]" />
+            </div>
+            <span className={META_TEXT_CLASS}>{timestampText}</span>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function TreeActionMenu({ label, actions }: { label: string; actions: ProjectSidebarTreeAction[] }) {
@@ -248,10 +339,13 @@ function validateDrop(
       return { valid: false, reason: 'Cannot drop inside a request.' };
     }
 
-    if (source.type === 'request-group' && position === 'inside' && target.type === 'request-group') {
-      if (target.ancestorIds?.includes(source.id)) {
-        return { valid: false, reason: 'Cannot move a folder into one of its descendants.' };
-      }
+    if (
+      source.type === 'request-group' &&
+      position === 'inside' &&
+      target.type === 'request-group' &&
+      target.ancestorIds?.includes(source.id)
+    ) {
+      return { valid: false, reason: 'Cannot move a folder into one of its descendants.' };
     }
 
     return { valid: true };
@@ -298,6 +392,7 @@ export function ProjectSidebarTree<
 }: ProjectSidebarTreeProps<TProject, TFile>) {
   const [draggedEntity, setDraggedEntity] = useState<ProjectSidebarTreeDragEntity | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+  const isWorkspacePreviewDisabled = Boolean(draggedEntity);
 
   const handleDrop = (
     source: ProjectSidebarTreeDragEntity,
@@ -425,23 +520,21 @@ export function ProjectSidebarTree<
       />
     ) : null;
 
-  return (
-    <>
-      {projects.map(project => {
-        const isProjectExpanded = expandedProjectIds.includes(project._id);
-        const isActiveProject = project._id === activeProjectId;
-        const files = projectFilesByProjectId[project._id] || [];
-        const projectEntity: ProjectSidebarTreeDragEntity = {
-          type: 'project',
-          id: project._id,
-          name: project.name,
-          projectId: project._id,
-        };
-        const projectDropState = getDropState(projectEntity);
+  const renderProjectNode = (project: typeof projects[number]) => {
+    const isProjectExpanded = expandedProjectIds.includes(project._id);
+    const isActiveProject = project._id === activeProjectId;
+    const files = projectFilesByProjectId[project._id] || [];
+    const projectEntity: ProjectSidebarTreeDragEntity = {
+      type: 'project',
+      id: project._id,
+      name: project.name,
+      projectId: project._id,
+    };
+    const projectDropState = getDropState(projectEntity);
 
-        return (
-          <div key={project._id} className="flex flex-col">
-            <div
+    return (
+      <div key={project._id} className="flex flex-col">
+        <div
               {...bindRowDnD(projectEntity, true)}
               className={getRowClass(isActiveProject, projectDropState.isDropInside, 'px-2 gap-0')}
             >
@@ -503,34 +596,44 @@ export function ProjectSidebarTree<
                       };
                       const workspaceDropState = getDropState(workspaceEntity);
 
-                      if (file.scope !== 'collection') {
-                        const isWorkspaceActive = activeWorkspaceId === file.workspace?._id;
+                  if (file.scope !== 'collection') {
+                    const isWorkspaceActive = activeWorkspaceId === file.workspace?._id;
+                    const workspaceTypeLabel = getWorkspaceScopeLabel(file.scope);
 
-                        return (
-                          <div key={`${project._id}:${file.id}`} className="min-w-0">
-                            <div
-                              {...bindRowDnD(workspaceEntity, false)}
-                              className={getRowClass(isWorkspaceActive, workspaceDropState.isDropInside, 'pl-6')}
+                    return (
+                      <div key={`${project._id}:${file.id}`} className="min-w-0">
+                        <div
+                          {...bindRowDnD(workspaceEntity, false)}
+                          className={getRowClass(isWorkspaceActive, workspaceDropState.isDropInside, 'pl-6')}
+                        >
+                          {renderDropLine(workspaceDropState.isDropBefore, true, workspaceDropState.isValid)}
+                          {renderDropLine(workspaceDropState.isDropAfter, false, workspaceDropState.isValid)}
+                          <span className="h-5 w-5 shrink-0" />
+                          <TooltipTrigger delay={350} isDisabled={isWorkspacePreviewDisabled}>
+                            <Button
+                              aria-label={`Open ${file.name}`}
+                              onPress={e => onOpenWorkspace(project, file, isPrimaryClickModifier(e))}
+                              className={getLabelClass(isWorkspaceActive)}
                             >
-                              {renderDropLine(workspaceDropState.isDropBefore, true, workspaceDropState.isValid)}
-                              {renderDropLine(workspaceDropState.isDropAfter, false, workspaceDropState.isValid)}
-                              <span className="h-5 w-5 shrink-0" />
-                              <Button
-                                aria-label={`Open ${file.name}`}
-                                onPress={e => onOpenWorkspace(project, file, isPrimaryClickModifier(e))}
-                                className={getLabelClass(isWorkspaceActive)}
-                              >
-                                <Icon icon={workspaceScopeIcon[file.scope]} className="w-3.5" />
-                                <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                              </Button>
-                              <TreeActionMenu
-                                label={`Actions for ${file.name}`}
-                                actions={getWorkspaceActions(project, file)}
-                              />
-                            </div>
-                          </div>
-                        );
-                      }
+                              <Icon icon={workspaceScopeIcon[file.scope]} className="w-3.5" />
+                              <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                            </Button>
+                            <Tooltip
+                              placement="right"
+                              offset={8}
+                              className={PREVIEW_CONTAINER_CLASS}
+                            >
+                              <WorkspacePreviewCard file={file} workspaceScopeIcon={workspaceScopeIcon} />
+                            </Tooltip>
+                          </TooltipTrigger>
+                          <TreeActionMenu
+                            label={`Actions for ${file.name}`}
+                            actions={getWorkspaceActions(project, file)}
+                          />
+                        </div>
+                      </div>
+                    );
+                  }
 
                       const collectionKey = `${project._id}:${file.id}`;
                       const isCollectionExpanded = expandedCollectionKeys.includes(collectionKey);
@@ -687,32 +790,79 @@ export function ProjectSidebarTree<
                               actions={getCollectionActions(project, file)}
                             />
                           </div>
-                          {isCollectionExpanded &&
-                            (rootNodes.length ? (
-                              <TreeBranchGuide
-                                left={`calc(${PROJECT_SIDEBAR_TREE_STYLE_TOKENS.workspaceRowPaddingLeft} + ${PROJECT_SIDEBAR_TREE_STYLE_TOKENS.caretCenterOffset})`}
-                              >
-                                {renderTreeNodes(file.id, PROJECT_SIDEBAR_TREE_TOKENS.collectionRootDepth)}
-                              </TreeBranchGuide>
-                            ) : (
-                              <div className="py-1 pr-2 pl-12 text-xs text-(--hl)">Empty collection</div>
-                            ))}
-                        </div>
-                      );
-                    })}
-                  <div
-                    {...bindProjectTailDropZone(projectEntity)}
-                    className="relative h-4"
-                    aria-hidden
-                  >
-                    {renderDropLine(projectDropState.isDropAfter, false, projectDropState.isValid)}
-                  </div>
-                </div>
-              </TreeBranchGuide>
-            )}
-          </div>
-        );
-      })}
+                        );
+                      });
+
+                  return (
+                    <div key={collectionKey} className="flex flex-col">
+                      <div
+                        {...bindRowDnD(workspaceEntity, true)}
+                        className={getRowClass(isCollectionActive, workspaceDropState.isDropInside, 'pl-6')}
+                      >
+                        {renderDropLine(workspaceDropState.isDropBefore, true, workspaceDropState.isValid)}
+                        {renderDropLine(workspaceDropState.isDropAfter, false, workspaceDropState.isValid)}
+                        <Button
+                          aria-label={`${isCollectionExpanded ? 'Collapse' : 'Expand'} ${file.name}`}
+                          onPress={() => onToggleCollectionExpanded(collectionKey)}
+                          className={CARET_BUTTON_CLASS}
+                        >
+                          <Icon
+                            icon={isCollectionExpanded ? 'chevron-down' : 'chevron-right'}
+                            className="h-3 w-3"
+                          />
+                        </Button>
+                        <TooltipTrigger delay={350} isDisabled={isWorkspacePreviewDisabled}>
+                          <Button
+                            aria-label={`Open ${file.name}`}
+                            onPress={e => onOpenWorkspace(project, file, isPrimaryClickModifier(e))}
+                            className={getLabelClass(isCollectionActive)}
+                          >
+                            <Icon icon={workspaceScopeIcon[file.scope]} className="w-3.5" />
+                            <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                          </Button>
+                          <Tooltip
+                            placement="right"
+                            offset={8}
+                            className={PREVIEW_CONTAINER_CLASS}
+                          >
+                            <WorkspacePreviewCard file={file} workspaceScopeIcon={workspaceScopeIcon} />
+                          </Tooltip>
+                        </TooltipTrigger>
+                        <TreeActionMenu
+                          label={`Actions for ${file.name}`}
+                          actions={getCollectionActions(project, file)}
+                        />
+                      </div>
+                      {isCollectionExpanded &&
+                        (rootNodes.length ? (
+                          <TreeBranchGuide
+                            left={`calc(${PROJECT_SIDEBAR_TREE_STYLE_TOKENS.workspaceRowPaddingLeft} + ${PROJECT_SIDEBAR_TREE_STYLE_TOKENS.caretCenterOffset})`}
+                          >
+                            {renderTreeNodes(file.id, PROJECT_SIDEBAR_TREE_TOKENS.collectionRootDepth)}
+                          </TreeBranchGuide>
+                        ) : (
+                          <div className="py-1 pr-2 pl-12 text-xs text-(--hl)">Empty collection</div>
+                        ))}
+                    </div>
+                  );
+                })}
+              <div
+                {...bindProjectTailDropZone(projectEntity)}
+                className="relative h-4"
+                aria-hidden
+              >
+                {renderDropLine(projectDropState.isDropAfter, false, projectDropState.isValid)}
+              </div>
+            </div>
+          </TreeBranchGuide>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      {projects.map(renderProjectNode)}
     </>
   );
 }

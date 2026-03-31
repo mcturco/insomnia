@@ -962,6 +962,44 @@ function ProjectSidebarShell() {
       onAction: () => createCollectionRequest({ project, workspace: file.workspace, requestType: 'SocketIO' }),
     },
     {
+      id: 'run-collection',
+      label: 'Run Collection',
+      onAction: () =>
+        tabNavigate(
+          {
+            organization: organizationId,
+            project,
+            workspace: file.workspace,
+            item: file.workspace,
+          },
+          {
+            shouldNavigate: true,
+            asRunner: true,
+          },
+        ),
+    },
+    {
+      id: 'rename-collection',
+      label: 'Rename Collection',
+      onAction: () =>
+        showModal(PromptModal, {
+          title: 'Rename Collection',
+          defaultValue: file.name,
+          submitName: 'Rename',
+          label: 'Name',
+          selectText: true,
+          onComplete: name =>
+            updateWorkspaceFetcher.submit({
+              organizationId,
+              projectId: project._id,
+              patch: {
+                workspaceId: file.workspace._id,
+                name,
+              },
+            }),
+        }),
+    },
+    {
       id: 'import-curl',
       label: 'Import From Curl',
       onAction: () => {
@@ -1058,6 +1096,23 @@ function ProjectSidebarShell() {
           createCollectionRequest({ project, workspace: file.workspace, requestType: 'SocketIO', parentId: requestGroup._id }),
       },
       {
+        id: 'run-folder',
+        label: 'Run Folder',
+        onAction: () =>
+          tabNavigate(
+            {
+              organization: organizationId,
+              project,
+              workspace: file.workspace,
+              item: requestGroup,
+            },
+            {
+              shouldNavigate: true,
+              asRunner: true,
+            },
+          ),
+      },
+      {
         id: 'import-curl',
         label: 'Import From Curl',
         onAction: () => {
@@ -1106,23 +1161,6 @@ function ProjectSidebarShell() {
                 patch: { name },
               }),
           }),
-      },
-      {
-        id: 'run-folder',
-        label: 'Run Folder',
-        onAction: () =>
-          tabNavigate(
-            {
-              organization: organizationId,
-              project,
-              workspace: file.workspace,
-              item: requestGroup,
-            },
-            {
-              shouldNavigate: true,
-              asRunner: true,
-            },
-          ),
       },
       {
         id: 'delete',
