@@ -598,8 +598,6 @@ export function ProjectSidebarTree<
 
                   if (file.scope !== 'collection') {
                     const isWorkspaceActive = activeWorkspaceId === file.workspace?._id;
-                    const workspaceTypeLabel = getWorkspaceScopeLabel(file.scope);
-
                     return (
                       <div key={`${project._id}:${file.id}`} className="min-w-0">
                         <div
@@ -758,40 +756,6 @@ export function ProjectSidebarTree<
                               </div>
                             );
                           });
-
-                      return (
-                        <div key={collectionKey} className="flex flex-col">
-                          <div
-                            {...bindRowDnD(workspaceEntity, true)}
-                            className={getRowClass(isCollectionActive, workspaceDropState.isDropInside, 'pl-6')}
-                          >
-                            {renderDropLine(workspaceDropState.isDropBefore, true, workspaceDropState.isValid)}
-                            {renderDropLine(workspaceDropState.isDropAfter, false, workspaceDropState.isValid)}
-                            <Button
-                              aria-label={`${isCollectionExpanded ? 'Collapse' : 'Expand'} ${file.name}`}
-                              onPress={() => onToggleCollectionExpanded(collectionKey)}
-                              className={CARET_BUTTON_CLASS}
-                            >
-                              <Icon
-                                icon={isCollectionExpanded ? 'chevron-down' : 'chevron-right'}
-                                className="h-3 w-3"
-                              />
-                            </Button>
-                            <Button
-                              aria-label={`Open ${file.name}`}
-                              onPress={e => onOpenWorkspace(project, file, isPrimaryClickModifier(e))}
-                              className={getLabelClass(isCollectionActive)}
-                            >
-                              <Icon icon={workspaceScopeIcon[file.scope]} className="w-3.5" />
-                              <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                            </Button>
-                            <TreeActionMenu
-                              label={`Actions for ${file.name}`}
-                              actions={getCollectionActions(project, file)}
-                            />
-                          </div>
-                        );
-                      });
 
                   return (
                     <div key={collectionKey} className="flex flex-col">
