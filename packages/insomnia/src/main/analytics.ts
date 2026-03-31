@@ -16,6 +16,12 @@ import {
 } from '../common/constants';
 import * as models from '../models/index';
 
+let _currentOrganizationId: string | undefined;
+
+export function setCurrentOrganizationId(id: string | undefined): void {
+  _currentOrganizationId = id;
+}
+
 const analytics = new Analytics({
   writeKey: getSegmentWriteKey(),
   httpClient: {
@@ -69,10 +75,6 @@ export enum SegmentEvent {
   mcpResourceRead = 'MCP Resource Read',
   mcpPromptCalled = 'MCP Prompt Called',
   installPlugin = 'Plugin Installed',
-
-  // TODO(INS-1912): Remove in 12.5
-  tempOrganizationOpened = 'temp_organization_opened',
-  tempProjectOpened = 'temp_project_opened',
 }
 
 function hashString(input: string) {
@@ -101,6 +103,7 @@ export async function trackSegmentEvent(event: SegmentEvent, properties?: Record
         {
           event,
           properties: {
+            ...(_currentOrganizationId && { organization_id: _currentOrganizationId }),
             ...properties,
             platform: 'app',
           },
