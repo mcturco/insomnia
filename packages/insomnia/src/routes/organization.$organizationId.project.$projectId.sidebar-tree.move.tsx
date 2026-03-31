@@ -189,11 +189,9 @@ export async function clientAction({ request }: Route.ClientActionArgs) {
   invariant(parentId, 'Parent ID is required');
   invariant(Number.isFinite(metaSortKey), 'Meta sort key is invalid');
 
-  if (isRequestGroup(source)) {
-    await models.requestGroup.update(source, { parentId, metaSortKey });
-  } else {
-    await requestOperations.update(source, { parentId, metaSortKey });
-  }
+  isRequestGroup(source)
+    ? await models.requestGroup.update(source, { parentId, metaSortKey })
+    : await requestOperations.update(source, { parentId, metaSortKey });
 
   return null;
 }

@@ -20,14 +20,14 @@ import {
   TooltipTrigger,
 } from 'react-aria-components';
 import { type ImperativePanelGroupHandle, Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import { href, NavLink, redirect, useLoaderData } from 'react-router';
+import { href, redirect, useLoaderData } from 'react-router';
 import * as reactUse from 'react-use';
 import { SwaggerUIBundle } from 'swagger-ui-dist';
 import YAML from 'yaml';
 
 import { parseApiSpec } from '~/common/api-specs';
 import { DEFAULT_SIDEBAR_SIZE, MIN_WORKSPACE_SECONDARY_SIDEBAR_WIDTH } from '~/common/constants';
-import { debounce, isNotNullOrUndefined } from '~/common/misc';
+import { debounce } from '~/common/misc';
 import * as models from '~/models/index';
 import { isScratchpadOrganizationId } from '~/models/organization';
 import { isGitProject } from '~/models/project';
