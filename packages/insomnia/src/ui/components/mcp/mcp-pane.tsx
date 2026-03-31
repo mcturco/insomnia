@@ -63,9 +63,8 @@ const emptyServerData: McpServerData = {
 };
 
 export const McpPane = () => {
-  const { organizationId, projectId, workspaceId } = useParams() as {
+  const { organizationId, workspaceId } = useParams() as {
     organizationId: string;
-    projectId: string;
     workspaceId: string;
   };
   const { activeRequest, activeResponse, activeRequestMeta } = useRequestLoaderData()! as McpRequestLoaderData;

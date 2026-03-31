@@ -28,8 +28,7 @@ import { InsomniaTabProvider } from '~/ui/context/app/insomnia-tab-context';
 import { RunnerProvider } from '~/ui/context/app/runner-context';
 import { useCloseConnection } from '~/ui/hooks/use-close-connection';
 import { sortOrganizations } from '~/ui/organization-utils';
-import { trackTempOrganizationOpened } from '~/ui/temp-segment-tracking';
-import { AsyncTask, getInitialRouteForOrganization } from '~/utils/router';
+import type { AsyncTask } from '~/utils/router';
 
 import type { Route } from './+types/organization';
 

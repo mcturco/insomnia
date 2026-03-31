@@ -1,6 +1,6 @@
 import type { IconProp } from '@fortawesome/fontawesome-svg-core';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Heading, Input, SearchField, Tab, TabList, Tabs } from 'react-aria-components';
+import { Button, Input, SearchField, Tab, TabList, Tabs } from 'react-aria-components';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import {
   href,
@@ -31,7 +31,6 @@ import type { SocketIORequest } from '~/models/socket-io-request';
 import type { WebSocketRequest } from '~/models/websocket-request';
 import { type Workspace, type WorkspaceScope } from '~/models/workspace';
 import { useKonnectSyncActionFetcher } from '~/routes/organization.$organizationId.konnect.sync';
-import { useProjectDeleteActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.delete';
 import { useProjectMoveWorkspaceActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.move-workspace';
 import { useProjectSidebarTreeMoveActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.sidebar-tree.move';
 import { useRequestDuplicateActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request.$requestId.duplicate';
@@ -973,13 +972,16 @@ function ProjectSidebarShell() {
       label: 'Export',
       onAction: () => {
         if (file.scope === 'mock-server') {
-          return exportMockServerToFile(file.workspace);
+          exportMockServerToFile(file.workspace);
+          return;
         }
         if (file.scope === 'environment') {
-          return exportGlobalEnvironmentToFile(file.workspace);
+          exportGlobalEnvironmentToFile(file.workspace);
+          return;
         }
         if (file.scope === 'mcp') {
-          return exportMcpClientToFile(file.workspace);
+          exportMcpClientToFile(file.workspace);
+          return;
         }
 
         setWorkspaceActionTarget({ project, workspace: file.workspace });
@@ -1020,7 +1022,7 @@ function ProjectSidebarShell() {
             yesText: 'Delete',
             noText: 'Cancel',
             color: 'danger',
-            onDone: (isYes: boolean) => {
+            onDone: async (isYes: boolean) => {
               if (isYes) {
                 deleteWorkspaceFetcher.submit({
                   organizationId,
@@ -1281,7 +1283,7 @@ function ProjectSidebarShell() {
             yesText: 'Delete',
             noText: 'Cancel',
             color: 'danger',
-            onDone: (isYes: boolean) => {
+            onDone: async (isYes: boolean) => {
               if (isYes) {
                 deleteRequestGroupFetcher.submit({
                   organizationId,
@@ -1361,7 +1363,7 @@ function ProjectSidebarShell() {
             yesText: 'Delete',
             noText: 'Cancel',
             color: 'danger',
-            onDone: (isYes: boolean) => {
+            onDone: async (isYes: boolean) => {
               if (isYes) {
                 deleteRequestFetcher.submit({
                   organizationId,

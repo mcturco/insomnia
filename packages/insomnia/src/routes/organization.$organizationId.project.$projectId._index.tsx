@@ -65,7 +65,6 @@ import { useRootLoaderData } from '~/root';
 import { useOrganizationLoaderData } from '~/routes/organization';
 import { useInsomniaSyncPullRemoteFileActionFetcher } from '~/routes/organization.$organizationId.insomnia-sync.pull-remote-file';
 import { useKonnectSyncActionFetcher } from '~/routes/organization.$organizationId.konnect.sync';
-import { useProjectDeleteActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.delete';
 import { useProjectMoveWorkspaceActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.move-workspace';
 import { useProjectSidebarTreeMoveActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.sidebar-tree.move';
 import { useRequestDuplicateActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request.$requestId.duplicate';
@@ -129,7 +128,6 @@ import { useOrganizationPermissions } from '~/ui/hooks/use-organization-features
 import { getKonnectSidebarState } from '~/ui/konnect/sidebar-state';
 import { loadKonnectConnection, saveKonnectConnection } from '~/ui/konnect/storage';
 import { DEFAULT_STORAGE_RULES } from '~/ui/organization-utils';
-import { trackTempProjectOpened } from '~/ui/temp-segment-tracking';
 import { isPrimaryClickModifier } from '~/ui/utils';
 import { invariant } from '~/utils/invariant';
 
@@ -755,13 +753,6 @@ const Component = () => {
       clearInterval(interval);
     };
   }, [konnectSyncFetcher, organizationId, projects]);
-  // TODO(INS-1912): Remove in 12.5
-  useEffect(() => {
-    if (projectId) {
-      trackTempProjectOpened(projectId);
-    }
-  }, [projectId]);
-
   const { storagePromise } = storageRuleFetcher.data || {};
 
   const [storageRules = DEFAULT_STORAGE_RULES] = useLoaderDeferData(storagePromise, organizationId);
@@ -1515,6 +1506,7 @@ const Component = () => {
     if (file.scope === 'unsynced' || !file.workspace) {
       return [];
     }
+    const workspace = file.workspace;
     const actions: ProjectSidebarTreeAction[] = [
       {
         id: 'open-new-tab',
@@ -1536,7 +1528,7 @@ const Component = () => {
                 organizationId,
                 projectId: project._id,
                 patch: {
-                  workspaceId: file.workspace._id,
+                  workspaceId: workspace._id,
                   name,
                 },
               }),
@@ -1550,7 +1542,7 @@ const Component = () => {
           id: 'import',
           label: 'Import',
           onAction: () => {
-            setWorkspaceActionTarget({ project, file, workspace: file.workspace });
+            setWorkspaceActionTarget({ project, file, workspace });
             setIsWorkspaceImportModalOpen(true);
           },
         },
@@ -1559,14 +1551,14 @@ const Component = () => {
           label: 'Run Collection',
           onAction: () =>
             navigate(
-              `/organization/${organizationId}/project/${project._id}/workspace/${file.workspace._id}/debug/runner?folder=`,
+              `/organization/${organizationId}/project/${project._id}/workspace/${workspace._id}/debug/runner?folder=`,
             ),
         },
         {
           id: 'duplicate-move',
           label: 'Duplicate / Move',
           onAction: () => {
-            setWorkspaceActionTarget({ project, file, workspace: file.workspace });
+            setWorkspaceActionTarget({ project, file, workspace });
             setIsWorkspaceDuplicateModalOpen(true);
           },
         },
@@ -1578,16 +1570,19 @@ const Component = () => {
       label: 'Export',
       onAction: () => {
         if (file.scope === 'mock-server') {
-          return exportMockServerToFile(file.workspace);
+          exportMockServerToFile(workspace);
+          return;
         }
         if (file.scope === 'environment') {
-          return exportGlobalEnvironmentToFile(file.workspace);
+          exportGlobalEnvironmentToFile(workspace);
+          return;
         }
         if (file.scope === 'mcp') {
-          return exportMcpClientToFile(file.workspace);
+          exportMcpClientToFile(workspace);
+          return;
         }
 
-        setWorkspaceActionTarget({ project, file, workspace: file.workspace });
+        setWorkspaceActionTarget({ project, file, workspace });
         setIsWorkspaceExportModalOpen(true);
       },
     });
@@ -1600,7 +1595,7 @@ const Component = () => {
           generateCollectionFetcher.submit({
             organizationId,
             projectId: project._id,
-            workspaceId: file.workspace._id,
+            workspaceId: workspace._id,
           }),
       });
     }
@@ -1610,7 +1605,7 @@ const Component = () => {
         id: 'settings',
         label: 'Settings',
         onAction: () => {
-          setWorkspaceActionTarget({ project, file, workspace: file.workspace });
+          setWorkspaceActionTarget({ project, file, workspace });
           setIsWorkspaceSettingsModalOpen(true);
         },
       },
@@ -1625,12 +1620,12 @@ const Component = () => {
             yesText: 'Delete',
             noText: 'Cancel',
             color: 'danger',
-            onDone: (isYes: boolean) => {
+            onDone: async (isYes: boolean) => {
               if (isYes) {
                 deleteWorkspaceFetcher.submit({
                   organizationId,
                   projectId: project._id,
-                  workspaceId: file.workspace._id,
+                  workspaceId: workspace._id,
                 });
               }
             },
@@ -1897,7 +1892,7 @@ const Component = () => {
             yesText: 'Delete',
             noText: 'Cancel',
             color: 'danger',
-            onDone: (isYes: boolean) => {
+            onDone: async (isYes: boolean) => {
               if (isYes) {
                 deleteRequestGroupFetcher.submit({
                   organizationId,
@@ -1980,7 +1975,7 @@ const Component = () => {
             yesText: 'Delete',
             noText: 'Cancel',
             color: 'danger',
-            onDone: (isYes: boolean) => {
+            onDone: async (isYes: boolean) => {
               if (isYes) {
                 deleteRequestFetcher.submit({
                   organizationId,

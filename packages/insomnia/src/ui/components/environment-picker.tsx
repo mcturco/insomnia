@@ -51,6 +51,7 @@ export const EnvironmentPicker = ({
     requestId?: string;
     requestGroupId?: string;
   };
+  const navigate = useNavigate();
 
   const { features } = useOrganizationPermissions();
   const isUsingInsomniaCloudSync = Boolean(isRemoteProject(activeProject) && !activeWorkspaceMeta?.gitRepositoryId);
@@ -101,8 +102,6 @@ export const EnvironmentPicker = ({
         : isUsingInsomniaCloudSync
           ? 'globe-americas'
           : 'file-arrow-down';
-
-  const navigate = useNavigate();
 
   return (
     <DialogTrigger isOpen={isOpen} onOpenChange={onOpenChange}>
