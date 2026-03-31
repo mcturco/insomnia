@@ -63,11 +63,18 @@ export const EnvironmentEditor = forwardRef<EnvironmentEditorHandle, Props>(
       setError(message);
     };
 
-    let defaultValue = orderedJSON.stringify(
-      environmentInfo.object,
-      environmentInfo.propertyOrder || null,
-      JSON_ORDER_SEPARATOR,
-    );
+    let defaultValue = '';
+    try {
+      defaultValue = orderedJSON.stringify(
+        environmentInfo.object,
+        environmentInfo.propertyOrder || null,
+        JSON_ORDER_SEPARATOR,
+      );
+    } catch {
+      // Fallback for malformed persisted property-order maps.
+      // This keeps the editor usable so users can save and heal the environment document.
+      defaultValue = JSON.stringify(environmentInfo.object || {}, null, 2);
+    }
 
     // The reverse operation of the logic in getValue.
     if (isWindows()) {

@@ -1,5 +1,5 @@
 import type { IconName, IconProp } from '@fortawesome/fontawesome-svg-core';
-import React, { Fragment, useMemo, useRef, useState } from 'react';
+import React, { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   Dialog,
@@ -69,10 +69,14 @@ export const WorkspaceEnvironmentsEditModal = ({ onClose }: { onClose: () => voi
 
   const { baseEnvironment, activeEnvironment, subEnvironments, activeProject, activeWorkspaceMeta } = routeData;
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<string>(activeEnvironment._id);
+  const [isEditorHydrated, setIsEditorHydrated] = useState(false);
   const isUsingInsomniaCloudSync = Boolean(isRemoteProject(activeProject) && !activeWorkspaceMeta?.gitRepositoryId);
   const isUsingGitSync = Boolean(features.gitSync.enabled && activeWorkspaceMeta?.gitRepositoryId);
 
   const selectedEnvironment = [baseEnvironment, ...subEnvironments].find(env => env._id === selectedEnvironmentId);
+  useEffect(() => {
+    setIsEditorHydrated(true);
+  }, []);
   const hasResponseTagEnvironmentVariable = useMemo(() => {
     if (selectedEnvironment) {
       return responseTagRegex.test(JSON.stringify(selectedEnvironment.data));
@@ -515,7 +519,8 @@ export const WorkspaceEnvironmentsEditModal = ({ onClose }: { onClose: () => voi
                     )}
                   </div>
                   {/* legacy JSON environment do not have environmentType property*/}
-                  {selectedEnvironment &&
+                  {isEditorHydrated &&
+                    selectedEnvironment &&
                     (selectedEnvironment.environmentType === EnvironmentType.JSON ||
                       !selectedEnvironment.environmentType) && (
                       <EnvironmentEditor
@@ -528,7 +533,7 @@ export const WorkspaceEnvironmentsEditModal = ({ onClose }: { onClose: () => voi
                         }}
                       />
                     )}
-                  {selectedEnvironment && selectedEnvironment.environmentType === EnvironmentType.KVPAIR && (
+                  {isEditorHydrated && selectedEnvironment && selectedEnvironment.environmentType === EnvironmentType.KVPAIR && (
                     <EnvironmentKVEditor
                       key={selectedEnvironment._id}
                       data={selectedEnvironment.kvPairData || []}

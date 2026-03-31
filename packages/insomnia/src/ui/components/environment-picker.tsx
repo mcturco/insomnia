@@ -88,13 +88,16 @@ export const EnvironmentPicker = ({
   const activeDisplayEnvironment = isGlobalEnvironmentSelected
     ? activeGlobalEnvironment
     : activeSubEnvironment || activeBaseEnvironment;
+  if (!activeDisplayEnvironment) {
+    return null;
+  }
 
   const activeDisplayEnvironmentIcon = isGlobalEnvironmentSelected
     ? 'globe-americas'
     : activeDisplayEnvironment.isPrivate
       ? 'lock'
       : isUsingGitSync
-        ? ['fab', 'git-alt']
+        ? 'code-branch'
         : isUsingInsomniaCloudSync
           ? 'globe-americas'
           : 'file-arrow-down';

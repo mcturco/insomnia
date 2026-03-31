@@ -34,6 +34,19 @@ import { setDefaultProtocol } from '../utils/url/protocol';
 import { CONTENT_TYPE_GRAPHQL, JSON_ORDER_SEPARATOR } from './constants';
 import { database as db } from './database';
 
+function orderEnvironmentObject(
+  data: Record<string, any> | undefined,
+  dataPropertyOrder: Record<string, any> | null | undefined,
+) {
+  try {
+    return orderedJSON.order(data || {}, dataPropertyOrder || null, JSON_ORDER_SEPARATOR);
+  } catch {
+    // Defensive fallback for malformed persisted order maps.
+    // Keep rendering functional and preserve natural key order.
+    return data || {};
+  }
+}
+
 export async function buildRenderContext({
   ancestors,
   rootEnvironment,
@@ -56,20 +69,12 @@ export async function buildRenderContext({
   const envObjects: Record<string, any>[] = [];
 
   if (rootGlobalEnvironment) {
-    const ordered = orderedJSON.order(
-      rootGlobalEnvironment.data,
-      rootGlobalEnvironment.dataPropertyOrder,
-      JSON_ORDER_SEPARATOR,
-    );
+    const ordered = orderEnvironmentObject(rootGlobalEnvironment.data, rootGlobalEnvironment.dataPropertyOrder);
     envObjects.push(ordered);
   }
 
   if (subGlobalEnvironment) {
-    const ordered = orderedJSON.order(
-      subGlobalEnvironment.data,
-      subGlobalEnvironment.dataPropertyOrder,
-      JSON_ORDER_SEPARATOR,
-    );
+    const ordered = orderEnvironmentObject(subGlobalEnvironment.data, subGlobalEnvironment.dataPropertyOrder);
     envObjects.push(ordered);
   }
 
@@ -77,12 +82,12 @@ export async function buildRenderContext({
   // Then get sub environment keys in correct order
   // Then get ancestor (folder) environment keys in correct order
   if (rootEnvironment) {
-    const ordered = orderedJSON.order(rootEnvironment.data, rootEnvironment.dataPropertyOrder, JSON_ORDER_SEPARATOR);
+    const ordered = orderEnvironmentObject(rootEnvironment.data, rootEnvironment.dataPropertyOrder);
     envObjects.push(ordered);
   }
 
   if (subEnvironment) {
-    const ordered = orderedJSON.order(subEnvironment.data, subEnvironment.dataPropertyOrder, JSON_ORDER_SEPARATOR);
+    const ordered = orderEnvironmentObject(subEnvironment.data, subEnvironment.dataPropertyOrder);
     envObjects.push(ordered);
   }
 
@@ -91,28 +96,20 @@ export async function buildRenderContext({
     const { environment, environmentPropertyOrder } = ancestor;
 
     if (typeof environment === 'object' && environment !== null) {
-      const ordered = orderedJSON.order(environment, environmentPropertyOrder, JSON_ORDER_SEPARATOR);
+      const ordered = orderEnvironmentObject(environment, environmentPropertyOrder);
       envObjects.push(ordered);
     }
   }
 
   // user upload env in collection runner has highest priority except local variables
   if (userUploadEnvironment) {
-    const ordered = orderedJSON.order(
-      userUploadEnvironment.data,
-      userUploadEnvironment.dataPropertyOrder,
-      JSON_ORDER_SEPARATOR,
-    );
+    const ordered = orderEnvironmentObject(userUploadEnvironment.data, userUploadEnvironment.dataPropertyOrder);
     envObjects.push(ordered);
   }
 
   // script local variables (insomnia.variable.set) has highest priority
   if (transientVariables) {
-    const ordered = orderedJSON.order(
-      transientVariables.data,
-      transientVariables.dataPropertyOrder,
-      JSON_ORDER_SEPARATOR,
-    );
+    const ordered = orderEnvironmentObject(transientVariables.data, transientVariables.dataPropertyOrder);
     envObjects.push(ordered);
   }
 

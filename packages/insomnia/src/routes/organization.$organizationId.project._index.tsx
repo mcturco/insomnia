@@ -14,6 +14,7 @@ import { useRootLoaderData } from '~/root';
 import { getProjectsWithGitRepositories } from '~/routes/organization.$organizationId.project.$projectId._index';
 import { useStorageRulesLoaderFetcher } from '~/routes/organization.$organizationId.storage-rules';
 import { ErrorBoundary } from '~/ui/components/error-boundary';
+import { KonnectSyncModal } from '~/ui/components/modals/konnect-sync-modal';
 import { ProjectModal } from '~/ui/components/modals/project-modal';
 import { NoProjectView } from '~/ui/components/panes/no-project-view';
 import { NoSelectedProjectView } from '~/ui/components/panes/no-selected-project-view';
@@ -70,6 +71,7 @@ const Component = () => {
   const [storageRules = DEFAULT_STORAGE_RULES] = useLoaderDeferData(storagePromise, organizationId);
 
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
+  const [isKonnectSyncModalOpen, setIsKonnectSyncModalOpen] = useState(false);
 
   const projectsWithPresence = projects.map(project => {
     const projectPresence = presence
@@ -112,6 +114,7 @@ const Component = () => {
                 projectsCount={projectsCount}
                 storageRules={storageRules}
                 onCreateProject={() => setIsNewProjectModalOpen(true)}
+                onOpenKonnectSync={() => setIsKonnectSyncModalOpen(true)}
               />
             </div>
           </Panel>
@@ -126,6 +129,13 @@ const Component = () => {
             isOpen={isNewProjectModalOpen}
             onOpenChange={setIsNewProjectModalOpen}
             storageRules={storageRules}
+          />
+        )}
+        {isKonnectSyncModalOpen && (
+          <KonnectSyncModal
+            organizationId={organizationId}
+            isOpen={isKonnectSyncModalOpen}
+            onOpenChange={setIsKonnectSyncModalOpen}
           />
         )}
       </>

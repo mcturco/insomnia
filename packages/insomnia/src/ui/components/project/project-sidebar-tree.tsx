@@ -116,6 +116,7 @@ interface ProjectSidebarTreeProps<
     event: Parameters<NonNullable<React.ComponentProps<typeof Button>['onPress']>>[0],
   ) => boolean;
   getProjectIcon: (project: TProject) => IconProp;
+  renderProjectIcon?: (project: TProject) => ReactNode;
   renderProjectMeta?: (project: TProject) => ReactNode;
   getRequestMethodBadgeClass: (method: string) => string;
   getRequestMethodLabel: (method: string) => string;
@@ -379,6 +380,7 @@ export function ProjectSidebarTree<
   onOpenCollectionNode,
   isPrimaryClickModifier,
   getProjectIcon,
+  renderProjectIcon,
   renderProjectMeta,
   getRequestMethodBadgeClass,
   getRequestMethodLabel,
@@ -552,7 +554,7 @@ export function ProjectSidebarTree<
                 onPress={() => onOpenProject(project)}
                 className={getLabelClass(isActiveProject)}
               >
-                <Icon icon={getProjectIcon(project)} />
+                {renderProjectIcon ? renderProjectIcon(project) : <Icon icon={getProjectIcon(project)} />}
                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
                 {renderProjectMeta?.(project)}
               </Button>
