@@ -1916,66 +1916,55 @@ const Component = () => {
           >
             <div className="flex flex-1 flex-col divide-y divide-solid divide-(--hl-md) overflow-hidden">
               <div className="flex flex-1 flex-col overflow-hidden">
-                <div className="flex items-center justify-between p-(--padding-sm)">
-                  <Heading className="text-xs uppercase">Projects</Heading>
-                  <Button
-                    aria-label="Create new Project"
-                    onPress={() => setIsNewProjectModalOpen(true)}
-                    className="flex aspect-square h-6 items-center justify-center rounded-xs text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
-                  >
-                    <Icon icon="plus-circle" />
-                  </Button>
-                </div>
-                <div className="flex-1 overflow-y-auto overflow-x-hidden py-1">
-                  <ProjectSidebarTree
-                    projects={orderedProjectsWithPresence}
-                    projectFilesByProjectId={projectFilesWithRemoteByProjectId}
-                    collectionTreeByWorkspaceId={collectionTreeByWorkspaceId}
-                    workspaceScopeOrder={workspaceScopeOrder}
-                    workspaceOrderByProjectId={workspaceOrderMap}
-                    workspaceScopeIcon={workspaceScopeIcon}
-                    expandedProjectIds={expandedProjectIdList}
-                    expandedCollectionKeys={expandedCollectionKeyList}
-                    expandedRequestGroupKeys={expandedRequestGroupKeyList}
-                    activeProjectId={activeProject?._id}
-                    activeWorkspaceId={workspaceId}
-                    activeRequestId={requestId}
-                    activeRequestGroupId={requestGroupId}
-                    onToggleProjectExpanded={toggleProjectExpanded}
-                    onToggleCollectionExpanded={toggleCollectionExpanded}
-                    onToggleRequestGroupExpanded={toggleRequestGroupExpanded}
-                    onOpenProject={project => navigate(`/organization/${organizationId}/project/${project._id}`)}
-                    onOpenWorkspace={(project, file, withTab) => openFileFromTree(project, file, withTab)}
-                    onOpenCollectionNode={(project, file, node, withTab) => {
-                      if (!file.workspace) {
-                        return;
-                      }
-                      openCollectionTreeNode({ project, workspace: file.workspace, node, withTab });
-                    }}
-                    isPrimaryClickModifier={isPrimaryClickModifier}
-                    getProjectIcon={project =>
-                      isRemoteProject(project)
-                        ? 'globe-americas'
-                        : isGitProject(project)
-                          ? (['fab', 'git-alt'] as unknown as IconProp)
-                          : 'laptop'
+                <ProjectSidebarTree
+                  projects={orderedProjectsWithPresence}
+                  projectFilesByProjectId={projectFilesWithRemoteByProjectId}
+                  collectionTreeByWorkspaceId={collectionTreeByWorkspaceId}
+                  workspaceScopeOrder={workspaceScopeOrder}
+                  workspaceOrderByProjectId={workspaceOrderMap}
+                  workspaceScopeIcon={workspaceScopeIcon}
+                  expandedProjectIds={expandedProjectIdList}
+                  expandedCollectionKeys={expandedCollectionKeyList}
+                  expandedRequestGroupKeys={expandedRequestGroupKeyList}
+                  activeProjectId={activeProject?._id}
+                  activeWorkspaceId={workspaceId}
+                  activeRequestId={requestId}
+                  activeRequestGroupId={requestGroupId}
+                  onToggleProjectExpanded={toggleProjectExpanded}
+                  onToggleCollectionExpanded={toggleCollectionExpanded}
+                  onToggleRequestGroupExpanded={toggleRequestGroupExpanded}
+                  onOpenProject={project => navigate(`/organization/${organizationId}/project/${project._id}`)}
+                  onOpenWorkspace={(project, file, withTab) => openFileFromTree(project, file, withTab)}
+                  onOpenCollectionNode={(project, file, node, withTab) => {
+                    if (!file.workspace) {
+                      return;
                     }
-                    renderProjectMeta={project =>
-                      project.presence.length > 0 ? (
-                        <AvatarGroup size="small" maxAvatars={3} items={project.presence} />
-                      ) : null
-                    }
-                    getRequestMethodBadgeClass={getRequestMethodBadgeClass}
-                    getRequestMethodLabel={method => getMethodShortHand({ method } as Request)}
-                    getProjectActions={getProjectActions}
-                    getWorkspaceActions={getWorkspaceActions}
-                    getCollectionActions={getCollectionActions}
-                    getFolderActions={getFolderActions}
-                    getRequestActions={getRequestActions}
-                    onValidDrop={handleValidTreeDrop}
-                    onInvalidDrop={handleInvalidTreeDrop}
-                  />
-                </div>
+                    openCollectionTreeNode({ project, workspace: file.workspace, node, withTab });
+                  }}
+                  isPrimaryClickModifier={isPrimaryClickModifier}
+                  getProjectIcon={project =>
+                    isRemoteProject(project)
+                      ? 'globe-americas'
+                      : isGitProject(project)
+                        ? (['fab', 'git-alt'] as unknown as IconProp)
+                        : 'laptop'
+                  }
+                  renderProjectMeta={project =>
+                    project.presence.length > 0 ? (
+                      <AvatarGroup size="small" maxAvatars={3} items={project.presence} />
+                    ) : null
+                  }
+                  getRequestMethodBadgeClass={getRequestMethodBadgeClass}
+                  getRequestMethodLabel={method => getMethodShortHand({ method } as Request)}
+                  getProjectActions={getProjectActions}
+                  getWorkspaceActions={getWorkspaceActions}
+                  getCollectionActions={getCollectionActions}
+                  getFolderActions={getFolderActions}
+                  getRequestActions={getRequestActions}
+                  onValidDrop={handleValidTreeDrop}
+                  onInvalidDrop={handleInvalidTreeDrop}
+                  onCreateProject={() => setIsNewProjectModalOpen(true)}
+                />
               </div>
               {activeProject && (
                 <>

@@ -1,6 +1,5 @@
 import type { IconProp } from '@fortawesome/fontawesome-svg-core';
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Heading } from 'react-aria-components';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { href, Outlet, redirect, useLoaderData, useMatches, useNavigate, useParams, useRouteLoaderData } from 'react-router';
 import * as reactUse from 'react-use';
@@ -40,7 +39,6 @@ import { CloudSyncProjectBar } from '~/ui/components/dropdowns/cloud-sync-projec
 import { GitProjectSyncDropdown } from '~/ui/components/dropdowns/git-project-sync-dropdown';
 import { LocalProjectBar } from '~/ui/components/dropdowns/local-project-bar';
 import { SyncDropdown } from '~/ui/components/dropdowns/sync-dropdown';
-import { Icon } from '~/ui/components/icon';
 import { showModal } from '~/ui/components/modals';
 import { AlertModal } from '~/ui/components/modals/alert-modal';
 import { AskModal } from '~/ui/components/modals/ask-modal';
@@ -1289,17 +1287,6 @@ function ProjectSidebarShell() {
         >
           <div className="flex flex-1 flex-col divide-y divide-solid divide-(--hl-md) overflow-hidden">
             <div className="flex flex-1 flex-col overflow-hidden">
-              <div className="flex items-center justify-between p-(--padding-sm)">
-                <Heading className="text-xs uppercase">Projects</Heading>
-                <Button
-                  aria-label="Create new Project"
-                  onPress={() => setIsNewProjectModalOpen(true)}
-                  className="flex aspect-square h-6 items-center justify-center rounded-xs text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
-                >
-                  <Icon icon="plus-circle" />
-                </Button>
-              </div>
-            <div className="flex-1 overflow-y-auto overflow-x-hidden py-1">
               <ProjectSidebarTree
                 projects={orderedProjects}
                 projectFilesByProjectId={projectFilesByProjectId}
@@ -1342,8 +1329,8 @@ function ProjectSidebarShell() {
                 getRequestActions={getRequestActions}
                 onValidDrop={handleValidTreeDrop}
                 onInvalidDrop={handleInvalidTreeDrop}
+                onCreateProject={() => setIsNewProjectModalOpen(true)}
               />
-            </div>
             </div>
             {activeProject && (
               <>

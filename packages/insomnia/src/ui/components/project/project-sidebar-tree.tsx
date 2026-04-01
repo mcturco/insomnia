@@ -1,7 +1,7 @@
 import type { IconProp } from '@fortawesome/fontawesome-svg-core';
 import type { CSSProperties, DragEvent, HTMLAttributes, ReactNode } from 'react';
-import { useState } from 'react';
-import { Button, Menu, MenuItem, MenuTrigger, Popover, Tooltip, TooltipTrigger } from 'react-aria-components';
+import { useMemo, useState } from 'react';
+import { Button, Heading, Input, Menu, MenuItem, MenuTrigger, Popover, SearchField, Tooltip, TooltipTrigger } from 'react-aria-components';
 
 import type { Workspace } from '~/models/workspace';
 import { Icon } from '~/ui/components/icon';
@@ -126,6 +126,7 @@ interface ProjectSidebarTreeProps<
   getRequestActions: (project: TProject, file: TFile, node: ProjectSidebarTreeNode) => ProjectSidebarTreeAction[];
   onValidDrop: (payload: ProjectSidebarTreeDropPayload) => void;
   onInvalidDrop: (payload: ProjectSidebarTreeDropPayload & { reason: string }) => void;
+  onCreateProject?: () => void;
 }
 
 interface DropTarget {
@@ -389,10 +390,156 @@ export function ProjectSidebarTree<
   getRequestActions,
   onValidDrop,
   onInvalidDrop,
+  onCreateProject,
 }: ProjectSidebarTreeProps<TProject, TFile>) {
+  const [projectTreeFilter, setProjectTreeFilter] = useState('');
   const [draggedEntity, setDraggedEntity] = useState<ProjectSidebarTreeDragEntity | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const isWorkspacePreviewDisabled = Boolean(draggedEntity);
+  const normalizedProjectTreeFilter = projectTreeFilter.trim().toLowerCase();
+  const isFilteringActive = Boolean(normalizedProjectTreeFilter);
+
+  const {
+    visibleProjects,
+    visibleProjectFilesByProjectId,
+    visibleCollectionTreeByWorkspaceId,
+  } = useMemo(() => {
+    if (!normalizedProjectTreeFilter) {
+      return {
+        visibleProjects: projects,
+        visibleProjectFilesByProjectId: projectFilesByProjectId,
+        visibleCollectionTreeByWorkspaceId: collectionTreeByWorkspaceId,
+      };
+    }
+
+    const nextProjects: TProject[] = [];
+    const nextProjectFilesByProjectId: Record<string, TFile[]> = {};
+    const nextCollectionTreeByWorkspaceId: Record<string, ProjectSidebarTreeNode[]> = {};
+
+    for (const project of projects) {
+      const projectNameMatches = project.name.toLowerCase().includes(normalizedProjectTreeFilter);
+      const files = projectFilesByProjectId[project._id] || [];
+
+      if (projectNameMatches) {
+        nextProjects.push(project);
+        nextProjectFilesByProjectId[project._id] = files;
+        files.forEach(file => {
+          if (file.scope === 'collection') {
+            nextCollectionTreeByWorkspaceId[file.id] = collectionTreeByWorkspaceId[file.id] || [];
+          }
+        });
+        continue;
+      }
+
+      const filteredFiles: TFile[] = [];
+
+      for (const file of files) {
+        const fileNameMatches = file.name.toLowerCase().includes(normalizedProjectTreeFilter);
+
+        if (file.scope !== 'collection') {
+          if (fileNameMatches) {
+            filteredFiles.push(file);
+          }
+          continue;
+        }
+
+        const nodes = collectionTreeByWorkspaceId[file.id] || [];
+
+        if (fileNameMatches) {
+          filteredFiles.push(file);
+          nextCollectionTreeByWorkspaceId[file.id] = nodes;
+          continue;
+        }
+
+        const nodesById = new Map(nodes.map(node => [node._id, node] as const));
+        const includedNodeIds = new Set<string>();
+
+        nodes.forEach(node => {
+          const nodeNameMatches = node.name.toLowerCase().includes(normalizedProjectTreeFilter);
+          const methodMatches = (node.requestMethod || '').toLowerCase().includes(normalizedProjectTreeFilter);
+
+          if (!nodeNameMatches && !methodMatches) {
+            return;
+          }
+
+          includedNodeIds.add(node._id);
+
+          let ancestorParentId = node.parentId;
+          while (ancestorParentId && ancestorParentId !== file.id) {
+            const ancestor = nodesById.get(ancestorParentId);
+            if (!ancestor) {
+              break;
+            }
+            includedNodeIds.add(ancestor._id);
+            ancestorParentId = ancestor.parentId;
+          }
+        });
+
+        if (includedNodeIds.size > 0) {
+          filteredFiles.push(file);
+          nextCollectionTreeByWorkspaceId[file.id] = nodes.filter(node => includedNodeIds.has(node._id));
+        }
+      }
+
+      if (filteredFiles.length > 0) {
+        nextProjects.push(project);
+        nextProjectFilesByProjectId[project._id] = filteredFiles;
+      }
+    }
+
+    return {
+      visibleProjects: nextProjects,
+      visibleProjectFilesByProjectId: nextProjectFilesByProjectId,
+      visibleCollectionTreeByWorkspaceId: nextCollectionTreeByWorkspaceId,
+    };
+  }, [collectionTreeByWorkspaceId, normalizedProjectTreeFilter, projectFilesByProjectId, projects]);
+
+  const autoExpandedProjectIds = useMemo(() => {
+    if (!isFilteringActive) {
+      return new Set<string>();
+    }
+    return new Set(visibleProjects.map(project => project._id));
+  }, [isFilteringActive, visibleProjects]);
+
+  const autoExpandedCollectionKeys = useMemo(() => {
+    if (!isFilteringActive) {
+      return new Set<string>();
+    }
+
+    const keys = new Set<string>();
+    visibleProjects.forEach(project => {
+      const files = visibleProjectFilesByProjectId[project._id] || [];
+      files.forEach(file => {
+        if (file.scope === 'collection') {
+          keys.add(`${project._id}:${file.id}`);
+        }
+      });
+    });
+    return keys;
+  }, [isFilteringActive, visibleProjectFilesByProjectId, visibleProjects]);
+
+  const autoExpandedRequestGroupKeys = useMemo(() => {
+    if (!isFilteringActive) {
+      return new Set<string>();
+    }
+
+    const keys = new Set<string>();
+    visibleProjects.forEach(project => {
+      const files = visibleProjectFilesByProjectId[project._id] || [];
+      files.forEach(file => {
+        if (file.scope !== 'collection') {
+          return;
+        }
+        const nodes = visibleCollectionTreeByWorkspaceId[file.id] || [];
+        nodes.forEach(node => {
+          if (node.nodeType === 'request-group') {
+            keys.add(`${project._id}:${file.id}:${node._id}`);
+          }
+        });
+      });
+    });
+    return keys;
+  }, [isFilteringActive, visibleCollectionTreeByWorkspaceId, visibleProjectFilesByProjectId, visibleProjects]);
 
   const handleDrop = (
     source: ProjectSidebarTreeDragEntity,
@@ -520,10 +667,12 @@ export function ProjectSidebarTree<
       />
     ) : null;
 
-  const renderProjectNode = (project: typeof projects[number]) => {
-    const isProjectExpanded = expandedProjectIds.includes(project._id);
+  const renderProjectNode = (project: typeof visibleProjects[number]) => {
+    const isProjectExpanded = isFilteringActive
+      ? autoExpandedProjectIds.has(project._id)
+      : expandedProjectIds.includes(project._id);
     const isActiveProject = project._id === activeProjectId;
-    const files = projectFilesByProjectId[project._id] || [];
+    const files = visibleProjectFilesByProjectId[project._id] || [];
     const projectEntity: ProjectSidebarTreeDragEntity = {
       type: 'project',
       id: project._id,
@@ -542,7 +691,12 @@ export function ProjectSidebarTree<
               {renderDropLine(!isProjectExpanded && projectDropState.isDropAfter, false, projectDropState.isValid)}
               <Button
                 aria-label={`${isProjectExpanded ? 'Collapse' : 'Expand'} ${project.name}`}
-                onPress={() => onToggleProjectExpanded(project._id)}
+                onPress={() => {
+                  if (!isFilteringActive) {
+                    onToggleProjectExpanded(project._id);
+                  }
+                }}
+                isDisabled={isFilteringActive}
                 className={CARET_BUTTON_CLASS}
               >
                 <Icon icon={isProjectExpanded ? 'chevron-down' : 'chevron-right'} className="h-3 w-3" />
@@ -634,8 +788,10 @@ export function ProjectSidebarTree<
                   }
 
                       const collectionKey = `${project._id}:${file.id}`;
-                      const isCollectionExpanded = expandedCollectionKeys.includes(collectionKey);
-                      const collectionTreeNodes = collectionTreeByWorkspaceId[file.id] || [];
+                      const isCollectionExpanded = isFilteringActive
+                        ? autoExpandedCollectionKeys.has(collectionKey)
+                        : expandedCollectionKeys.includes(collectionKey);
+                      const collectionTreeNodes = visibleCollectionTreeByWorkspaceId[file.id] || [];
                       const rootNodes = collectionTreeNodes
                         .filter(node => node.parentId === file.id)
                         .sort(compareCollectionNodeOrder);
@@ -648,7 +804,9 @@ export function ProjectSidebarTree<
                           .sort(compareCollectionNodeOrder)
                           .map(node => {
                             const requestGroupKey = `${project._id}:${file.id}:${node._id}`;
-                            const isRequestGroupExpanded = expandedRequestGroupKeys.includes(requestGroupKey);
+                            const isRequestGroupExpanded = isFilteringActive
+                              ? autoExpandedRequestGroupKeys.has(requestGroupKey)
+                              : expandedRequestGroupKeys.includes(requestGroupKey);
                             const hasChildren = collectionTreeNodes.some(childNode => childNode.parentId === node._id);
                             const nodeEntity: ProjectSidebarTreeDragEntity = {
                               type: node.nodeType,
@@ -676,7 +834,12 @@ export function ProjectSidebarTree<
                                     {renderDropLine(nodeDropState.isDropAfter, false, nodeDropState.isValid)}
                                     <Button
                                       aria-label={`${isRequestGroupExpanded ? 'Collapse' : 'Expand'} ${node.name}`}
-                                      onPress={() => onToggleRequestGroupExpanded(requestGroupKey)}
+                                      onPress={() => {
+                                        if (!isFilteringActive) {
+                                          onToggleRequestGroupExpanded(requestGroupKey);
+                                        }
+                                      }}
+                                      isDisabled={isFilteringActive}
                                       className={CARET_BUTTON_CLASS}
                                     >
                                       <Icon
@@ -767,7 +930,12 @@ export function ProjectSidebarTree<
                         {renderDropLine(workspaceDropState.isDropAfter, false, workspaceDropState.isValid)}
                         <Button
                           aria-label={`${isCollectionExpanded ? 'Collapse' : 'Expand'} ${file.name}`}
-                          onPress={() => onToggleCollectionExpanded(collectionKey)}
+                          onPress={() => {
+                            if (!isFilteringActive) {
+                              onToggleCollectionExpanded(collectionKey);
+                            }
+                          }}
+                          isDisabled={isFilteringActive}
                           className={CARET_BUTTON_CLASS}
                         >
                           <Icon
@@ -825,8 +993,37 @@ export function ProjectSidebarTree<
   };
 
   return (
-    <>
-      {projects.map(renderProjectNode)}
-    </>
+    <div className="flex h-full flex-col">
+      <div className="p-(--padding-sm) pb-1">
+        <Heading className="text-xs uppercase">Projects ({projects.length})</Heading>
+      </div>
+      <div className="flex items-start gap-1 px-2 pb-1">
+        <SearchField
+          aria-label="Filter project tree"
+          className="group relative flex flex-1"
+          value={projectTreeFilter}
+          onChange={setProjectTreeFilter}
+        >
+          <Icon icon="search" className="pointer-events-none absolute top-1/2 left-2 h-3 w-3 -translate-y-1/2 text-(--hl)" />
+          <Input
+            placeholder="Filter"
+            className="h-[22.75px] w-full rounded-xs border border-solid border-(--hl-sm) bg-(--color-bg) py-1 pr-2 pl-7 text-(--color-font) transition-colors placeholder:italic focus:ring-1 focus:ring-(--hl-md) focus:outline-hidden"
+          />
+        </SearchField>
+        {onCreateProject ? (
+          <Button
+            aria-label="Create new Project"
+            onPress={onCreateProject}
+            className="flex h-[22.75px] items-center gap-1 rounded-xs border border-solid border-(--hl-md) px-2 text-[11.375px] text-(--color-font) hover:bg-(--hl-xs)"
+          >
+            <Icon icon="plus" className="h-2.5 w-2.5" />
+            <span>New Project</span>
+          </Button>
+        ) : null}
+      </div>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden py-1">
+        {visibleProjects.map(renderProjectNode)}
+      </div>
+    </div>
   );
 }
