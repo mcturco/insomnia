@@ -93,9 +93,8 @@ export const EnvironmentPicker = ({
     return null;
   }
 
-  const activeDisplayEnvironmentIcon = isGlobalEnvironmentSelected
-    ? 'globe-americas'
-    : activeDisplayEnvironment.isPrivate
+  const getEnvIcon = (env: { isPrivate: boolean }): IconName =>
+    env.isPrivate
       ? 'lock'
       : isUsingGitSync
         ? 'code-branch'
@@ -103,19 +102,35 @@ export const EnvironmentPicker = ({
           ? 'globe-americas'
           : 'file-arrow-down';
 
+  const activeDisplayEnvironmentIcon = getEnvIcon(activeDisplayEnvironment);
+
+  const collectionDisplayEnvironment = activeSubEnvironment || activeBaseEnvironment;
+  const collectionEnvIcon = getEnvIcon(collectionDisplayEnvironment);
+
   return (
     <DialogTrigger isOpen={isOpen} onOpenChange={onOpenChange}>
       <Button
         aria-label="Manage Environments"
-        className="flex max-w-full flex-col items-start gap-2 truncate rounded-xs px-4 py-1 text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
+        className="flex max-w-full flex-col items-start truncate rounded-xs px-4 py-1 text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
       >
-        <div className="flex w-full flex-1 items-center gap-2">
+        <div className="flex w-full min-w-0 flex-1 items-center gap-2">
           <Icon
             icon={activeDisplayEnvironmentIcon}
             style={{ color: activeDisplayEnvironment.color || '' }}
             className="w-5 shrink-0"
           />
-          <span className="truncate">{activeDisplayEnvironment.name}</span>
+          <span className="min-w-0 truncate">{activeDisplayEnvironment.name}</span>
+          {isGlobalEnvironmentSelected && (
+            <>
+              <span className="shrink-0 text-(--hl)">+</span>
+              <Icon
+                icon={collectionEnvIcon}
+                style={{ color: collectionDisplayEnvironment.color || '' }}
+                className="w-5 shrink-0"
+              />
+              <span className="min-w-0 truncate">{collectionDisplayEnvironment.name}</span>
+            </>
+          )}
           <Icon icon="caret-down" className="ml-auto w-4 shrink-0 text-(--hl)" />
         </div>
       </Button>
@@ -245,15 +260,7 @@ export const EnvironmentPicker = ({
                         }}
                       >
                         <Icon
-                          icon={
-                            item.isPrivate
-                              ? 'lock'
-                              : isUsingGitSync
-                                ? ['fab', 'git-alt']
-                                : isUsingInsomniaCloudSync
-                                  ? 'globe-americas'
-                                  : 'file-arrow-down'
-                          }
+                          icon={getEnvIcon(item)}
                           className="w-5 text-xs"
                           style={{
                             color: item.color ?? 'var(--color-font)',
@@ -315,15 +322,7 @@ export const EnvironmentPicker = ({
                           }}
                         >
                           <Icon
-                            icon={
-                              item.isPrivate
-                                ? 'lock'
-                                : isUsingGitSync
-                                  ? ['fab', 'git-alt']
-                                  : isUsingInsomniaCloudSync
-                                    ? 'globe-americas'
-                                    : 'file-arrow-down'
-                            }
+                            icon={getEnvIcon(item)}
                             className="w-5 text-xs"
                             style={{
                               color: item.color ?? 'var(--color-font)',
