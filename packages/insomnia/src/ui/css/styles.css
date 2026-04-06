@@ -90,7 +90,7 @@ html {
     'Header Header' auto
     'Content Content' 1fr
     'Statusbar Statusbar' 30px [row-end]
-    / 50px 1fr;
+    / 47.5px 1fr;
 
   &.with-banner {
     grid-template:
@@ -106,7 +106,7 @@ html {
         'Banner Banner' 30px
         'Navbar Content' 1fr
         'Statusbar Statusbar' 30px [row-end]
-        / 50px 1fr;
+        / 47.5px 1fr;
     }
   }
 
@@ -115,7 +115,7 @@ html {
       'Header Header' auto
       'Navbar Content' 1fr
       'Statusbar Statusbar' 30px [row-end]
-      / 50px 1fr;
+      / 47.5px 1fr;
   }
 }
 
@@ -148,6 +148,22 @@ input[type='color']::-webkit-color-swatch {
   background-color: var(--color-bg);
   color: var(--color-font);
   overflow: hidden;
+}
+
+.project-sidebar-tree-branch {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.project-sidebar-tree-guide-line {
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  left: var(--project-tree-guide-left, 0px);
+  background-color: var(--hl-sm);
 }
 
 table.json-diff-viewer {

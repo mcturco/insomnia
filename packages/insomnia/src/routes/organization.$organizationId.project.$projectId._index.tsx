@@ -36,10 +36,12 @@ import { database } from '~/common/database';
 import { scopeToBgColorMap, scopeToIconMap, scopeToLabelMap, scopeToTextColorMap } from '~/common/get-workspace-label';
 import { fuzzyMatchAll, isNotNullOrUndefined } from '~/common/misc';
 import { descendingNumberSort, sortMethodMap } from '~/common/sorting';
+import type { McpRequest } from '~/insomnia-data';
 import * as models from '~/models';
 import { userSession } from '~/models';
 import type { ApiSpec } from '~/models/api-spec';
 import type { GitRepository } from '~/models/git-repository';
+import type { GrpcRequest } from '~/models/grpc-request';
 import { sortProjects } from '~/models/helpers/project';
 import type { MockServer } from '~/models/mock-server';
 import { isOwnerOfOrganization, isPersonalOrganization, isScratchpadOrganizationId } from '~/models/organization';
@@ -50,12 +52,30 @@ import {
   isRemoteProject,
   type Project,
 } from '~/models/project';
+import type { Request } from '~/models/request';
+import type { RequestGroup } from '~/models/request-group';
+import type { SocketIORequest } from '~/models/socket-io-request';
+import type { WebSocketRequest } from '~/models/websocket-request';
 import { isDesign, type Workspace, type WorkspaceScope } from '~/models/workspace';
 import type { WorkspaceMeta } from '~/models/workspace-meta';
 import { useRootLoaderData } from '~/root';
 import { useOrganizationLoaderData } from '~/routes/organization';
 import { useInsomniaSyncPullRemoteFileActionFetcher } from '~/routes/organization.$organizationId.insomnia-sync.pull-remote-file';
+import { useProjectDeleteActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.delete';
+import { useProjectMoveWorkspaceActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.move-workspace';
+import { useProjectSidebarTreeMoveActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.sidebar-tree.move';
+import { useRequestDuplicateActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request.$requestId.duplicate';
+import { useRequestUpdateActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request.$requestId.update';
+import { useRequestDeleteActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request.delete';
+import { useRequestNewActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request.new';
+import { useRequestGroupUpdateActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request-group.$requestGroupId.update';
+import { useRequestGroupDeleteActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request-group.delete';
+import { useRequestGroupDuplicateActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request-group.duplicate';
+import { useRequestGroupNewActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request-group.new';
+import { useMockServerGenerateRequestCollectionActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.mock-server.generate-request-collection';
+import { useWorkspaceDeleteActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.delete';
 import { useWorkspaceNewActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.new';
+import { useWorkspaceUpdateActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.update';
 import { useStorageRulesLoaderFetcher } from '~/routes/organization.$organizationId.storage-rules';
 import { VCSInstance } from '~/sync/vcs/insomnia-sync';
 import { SegmentEvent, trackOnceDaily } from '~/ui/analytics';
@@ -63,20 +83,39 @@ import { AvatarGroup } from '~/ui/components/avatar';
 import { CloudSyncProjectBar } from '~/ui/components/dropdowns/cloud-sync-project-bar';
 import { GitProjectSyncDropdown } from '~/ui/components/dropdowns/git-project-sync-dropdown';
 import { LocalProjectBar } from '~/ui/components/dropdowns/local-project-bar';
+import { SyncDropdown } from '~/ui/components/dropdowns/sync-dropdown';
 import { WorkspaceCardDropdown } from '~/ui/components/dropdowns/workspace-card-dropdown';
 import { ErrorBoundary } from '~/ui/components/error-boundary';
 import { Icon } from '~/ui/components/icon';
+import { showModal } from '~/ui/components/modals';
+import { AlertModal } from '~/ui/components/modals/alert-modal';
+import { AskModal } from '~/ui/components/modals/ask-modal';
+import { ExportRequestsModal } from '~/ui/components/modals/export-requests-modal';
 import { ImportModal } from '~/ui/components/modals/import-modal/import-modal';
 import { NewWorkspaceModal } from '~/ui/components/modals/new-workspace-modal';
+import { PasteCurlModal } from '~/ui/components/modals/paste-curl-modal';
 import { ProjectModal } from '~/ui/components/modals/project-modal';
+import { PromptModal } from '~/ui/components/modals/prompt-modal';
+import { WorkspaceDuplicateModal } from '~/ui/components/modals/workspace-duplicate-modal';
+import { WorkspaceSettingsModal } from '~/ui/components/modals/workspace-settings-modal';
 import { NoProjectView } from '~/ui/components/panes/no-project-view';
 import { NoSelectedProjectView } from '~/ui/components/panes/no-selected-project-view';
-import { OrganizationSelect } from '~/ui/components/project/organization-select';
 import { ProjectEmptyView } from '~/ui/components/project/project-empty-view';
-import { ProjectListSidebar } from '~/ui/components/project/project-list-sidebar';
+import {
+  ProjectSidebarTree,
+  type ProjectSidebarTreeAction,
+  type ProjectSidebarTreeDropPayload,
+  type ProjectSidebarTreeNode,
+} from '~/ui/components/project/project-sidebar-tree';
+import {
+  exportGlobalEnvironmentToFile,
+  exportMcpClientToFile,
+  exportMockServerToFile,
+} from '~/ui/components/settings/import-export';
 import { OrganizationTabList } from '~/ui/components/tabs/tab-list';
+import { getMethodShortHand } from '~/ui/components/tags/method-tag';
 import { TimeFromNow } from '~/ui/components/time-from-now';
-import { showResourceNotFoundToast } from '~/ui/components/toast-notification';
+import { showResourceNotFoundToast, showToast } from '~/ui/components/toast-notification';
 import { useInsomniaEventStreamContext } from '~/ui/context/app/insomnia-event-stream-context';
 import { useTabNavigate } from '~/ui/hooks/use-insomnia-tab';
 import { useLoaderDeferData } from '~/ui/hooks/use-loader-defer-data';
@@ -107,6 +146,8 @@ export interface InsomniaFile {
 
 export interface ProjectLoaderData {
   localFiles: InsomniaFile[];
+  projectFilesByProjectId: Record<string, InsomniaFile[]>;
+  collectionTreeByWorkspaceId: Record<string, CollectionTreeNode[]>;
   allFilesCount: number;
   documentsCount: number;
   environmentsCount: number;
@@ -120,6 +161,18 @@ export interface ProjectLoaderData {
   learningFeaturePromise?: Promise<LearningFeature>;
   remoteFilesPromise?: Promise<InsomniaFile[]>;
   projectsSyncStatusPromise?: Promise<Record<string, boolean>>;
+}
+
+type RequestLike = Request | GrpcRequest | WebSocketRequest | SocketIORequest | McpRequest;
+
+interface CollectionTreeNode {
+  _id: string;
+  parentId: string;
+  name: string;
+  nodeType: 'request-group' | 'request';
+  requestMethod?: string;
+  metaSortKey?: number;
+  doc: RequestGroup | RequestLike;
 }
 
 /**
@@ -308,6 +361,100 @@ async function getAllRemoteFiles({ projectId, organizationId }: { projectId: str
   return [];
 }
 
+async function getCollectionTreeByWorkspaceId({
+  collectionWorkspaceIds,
+}: {
+  collectionWorkspaceIds: string[];
+}): Promise<Record<string, CollectionTreeNode[]>> {
+  if (!collectionWorkspaceIds.length) {
+    return {};
+  }
+
+  const parentToWorkspaceId = new Map<string, string>();
+  collectionWorkspaceIds.forEach(workspaceId => parentToWorkspaceId.set(workspaceId, workspaceId));
+
+  const allRequestGroups: RequestGroup[] = [];
+  let queue = [...collectionWorkspaceIds];
+
+  while (queue.length) {
+    const requestGroups = await database.find<RequestGroup>(models.requestGroup.type, {
+      parentId: { $in: queue },
+    });
+
+    if (!requestGroups.length) {
+      break;
+    }
+
+    requestGroups.forEach(requestGroup => {
+      const workspaceId = parentToWorkspaceId.get(requestGroup.parentId);
+      if (workspaceId) {
+        parentToWorkspaceId.set(requestGroup._id, workspaceId);
+      }
+    });
+
+    allRequestGroups.push(...requestGroups);
+    queue = requestGroups.map(requestGroup => requestGroup._id);
+  }
+
+  const parentIds = [...collectionWorkspaceIds, ...allRequestGroups.map(requestGroup => requestGroup._id)];
+
+  const [httpRequests, grpcRequests, webSocketRequests, socketIoRequests, mcpRequests] = await Promise.all([
+    database.find<Request>(models.request.type, { parentId: { $in: parentIds } }),
+    database.find<GrpcRequest>(models.grpcRequest.type, { parentId: { $in: parentIds } }),
+    database.find<WebSocketRequest>(models.webSocketRequest.type, { parentId: { $in: parentIds } }),
+    database.find<SocketIORequest>(models.socketIORequest.type, { parentId: { $in: parentIds } }),
+    database.find<McpRequest>(models.mcpRequest.type, { parentId: { $in: parentIds } }),
+  ]);
+
+  const requestNodes: RequestLike[] = [
+    ...httpRequests,
+    ...grpcRequests,
+    ...webSocketRequests,
+    ...socketIoRequests,
+    ...mcpRequests,
+  ];
+
+  const treeByWorkspaceId: Record<string, CollectionTreeNode[]> = {};
+  for (const workspaceId of collectionWorkspaceIds) {
+    treeByWorkspaceId[workspaceId] = [];
+  }
+
+  allRequestGroups.forEach(requestGroup => {
+    const workspaceId = parentToWorkspaceId.get(requestGroup.parentId);
+    if (!workspaceId) {
+      return;
+    }
+
+    treeByWorkspaceId[workspaceId].push({
+      _id: requestGroup._id,
+      parentId: requestGroup.parentId,
+      name: requestGroup.name,
+      nodeType: 'request-group',
+      metaSortKey: requestGroup.metaSortKey,
+      doc: requestGroup,
+    });
+  });
+
+  requestNodes.forEach(requestNode => {
+    const workspaceId = parentToWorkspaceId.get(requestNode.parentId);
+    if (!workspaceId) {
+      return;
+    }
+
+    treeByWorkspaceId[workspaceId].push({
+      _id: requestNode._id,
+      parentId: requestNode.parentId,
+      name: requestNode.name,
+      nodeType: 'request',
+      requestMethod: 'method' in requestNode ? requestNode.method : undefined,
+      metaSortKey: 'metaSortKey' in requestNode ? requestNode.metaSortKey : undefined,
+      doc: requestNode,
+    });
+  });
+
+  return treeByWorkspaceId;
+}
+
 interface LearningFeature {
   active: boolean;
   title: string;
@@ -369,6 +516,8 @@ export async function clientLoader({ params }: LoaderFunctionArgs) {
   if (!projectId) {
     return {
       localFiles: [],
+      projectFilesByProjectId: {},
+      collectionTreeByWorkspaceId: {},
       allFilesCount: 0,
       documentsCount: 0,
       environmentsCount: 0,
@@ -394,6 +543,23 @@ export async function clientLoader({ params }: LoaderFunctionArgs) {
     getAllLocalFiles({ projectId }),
     getProjectsWithGitRepositories({ organizationId }),
   ]);
+  const projectFilesByProjectId = Object.fromEntries(
+    await Promise.all(
+      organizationProjects.map(async organizationProject => {
+        const files =
+          organizationProject._id === projectId
+            ? localFiles
+            : await getAllLocalFiles({ projectId: organizationProject._id });
+
+        return [organizationProject._id, files] as const;
+      }),
+    ),
+  );
+  const collectionWorkspaceIds = Object.values(projectFilesByProjectId)
+    .flat()
+    .filter(file => file.scope === 'collection')
+    .map(file => file.id);
+  const collectionTreeByWorkspaceId = await getCollectionTreeByWorkspaceId({ collectionWorkspaceIds });
 
   const remoteFilesPromise = getAllRemoteFiles({ projectId, organizationId });
   const learningFeaturePromise = getInsomniaLearningFeature(fallbackLearningFeature);
@@ -407,6 +573,8 @@ export async function clientLoader({ params }: LoaderFunctionArgs) {
 
   return {
     localFiles,
+    projectFilesByProjectId,
+    collectionTreeByWorkspaceId,
     learningFeaturePromise,
     remoteFilesPromise,
     projects,
@@ -430,16 +598,11 @@ export function useProjectIndexLoaderData() {
 const Component = () => {
   const {
     localFiles,
+    projectFilesByProjectId,
+    collectionTreeByWorkspaceId,
     activeProject,
     activeProjectGitRepository,
     projects,
-    allFilesCount,
-    environmentsCount,
-    collectionsCount,
-    mockServersCount,
-    mcpClientsCount,
-    documentsCount,
-    projectsCount,
     learningFeaturePromise,
     remoteFilesPromise,
     projectsSyncStatusPromise,
@@ -448,9 +611,12 @@ const Component = () => {
     'learning-feature-dismissed',
     '',
   );
-  const { organizationId, projectId } = useParams() as {
+  const { organizationId, projectId, workspaceId, requestId, requestGroupId } = useParams() as {
     organizationId: string;
     projectId: string;
+    workspaceId?: string;
+    requestId?: string;
+    requestGroupId?: string;
   };
   const [learningFeature] = useLoaderDeferData<LearningFeature>(learningFeaturePromise);
   const [remoteFiles] = useLoaderDeferData<InsomniaFile[]>(remoteFilesPromise, projectId);
@@ -477,7 +643,21 @@ const Component = () => {
   const organizationData = useOrganizationLoaderData();
   const { presence } = useInsomniaEventStreamContext();
   const storageRuleFetcher = useStorageRulesLoaderFetcher({ key: `storage-rule:${organizationId}` });
+  const deleteProjectFetcher = useProjectDeleteActionFetcher();
   const createNewWorkspaceFetcher = useWorkspaceNewActionFetcher();
+  const createRequestFetcher = useRequestNewActionFetcher();
+  const createRequestGroupFetcher = useRequestGroupNewActionFetcher();
+  const updateRequestFetcher = useRequestUpdateActionFetcher();
+  const duplicateRequestFetcher = useRequestDuplicateActionFetcher();
+  const deleteRequestFetcher = useRequestDeleteActionFetcher();
+  const moveWorkspaceFetcher = useProjectMoveWorkspaceActionFetcher();
+  const moveCollectionNodeFetcher = useProjectSidebarTreeMoveActionFetcher();
+  const updateRequestGroupFetcher = useRequestGroupUpdateActionFetcher();
+  const duplicateRequestGroupFetcher = useRequestGroupDuplicateActionFetcher();
+  const deleteRequestGroupFetcher = useRequestGroupDeleteActionFetcher();
+  const updateWorkspaceFetcher = useWorkspaceUpdateActionFetcher();
+  const deleteWorkspaceFetcher = useWorkspaceDeleteActionFetcher();
+  const generateCollectionFetcher = useMockServerGenerateRequestCollectionActionFetcher();
   const { billing } = useOrganizationPermissions();
 
   useEffect(() => {
@@ -487,25 +667,81 @@ const Component = () => {
     }
   }, [organizationId, storageRuleFetcher.load]);
 
+  useEffect(() => {
+    if (deleteProjectFetcher.data && deleteProjectFetcher.data.error && deleteProjectFetcher.state === 'idle') {
+      showModal(AlertModal, {
+        title: 'Could not delete project',
+        message: deleteProjectFetcher.data.error,
+      });
+    }
+  }, [deleteProjectFetcher.data, deleteProjectFetcher.state]);
+
   const { storagePromise } = storageRuleFetcher.data || {};
 
   const [storageRules = DEFAULT_STORAGE_RULES] = useLoaderDeferData(storagePromise, organizationId);
+  const projectWorkspaces = projectFilesByProjectId[activeProject?._id || ''] ?? [];
+  const activeWorkspace =
+    (workspaceId ? projectWorkspaces.find(file => file.id === workspaceId)?.workspace : null) ||
+    projectWorkspaces.find(file => file.scope === 'collection')?.workspace ||
+    projectWorkspaces.find(file => file.workspace)?.workspace ||
+    null;
 
   const [workspaceListFilter, setWorkspaceListFilter] = reactUse.useLocalStorage(
     `${projectId}:workspace-list-filter`,
     '',
   );
-  const [workspaceListScope, setWorkspaceListScope] = reactUse.useLocalStorage(
-    `${projectId}:workspace-list-scope`,
-    'all',
-  );
   const [workspaceListSortOrder, setWorkspaceListSortOrder] = reactUse.useLocalStorage(
     `${projectId}:workspace-list-sort-order`,
     'modified-desc',
   );
+  const [expandedProjectIds, setExpandedProjectIds] = reactUse.useLocalStorage<string[]>(
+    `${organizationId}:project-tree-expanded-projects`,
+    activeProject?._id ? [activeProject._id] : [],
+  );
+  const [expandedCollectionKeys, setExpandedCollectionKeys] = reactUse.useLocalStorage<string[]>(
+    `${organizationId}:project-tree-expanded-collections`,
+    [],
+  );
+  const [workspaceOrderByProjectId, setWorkspaceOrderByProjectId] = reactUse.useLocalStorage<Record<string, string[]>>(
+    `${organizationId}:project-tree-workspace-order`,
+    {},
+  );
+  const [expandedRequestGroupKeys, setExpandedRequestGroupKeys] = reactUse.useLocalStorage<string[]>(
+    `${organizationId}:project-tree-expanded-request-groups`,
+    [],
+  );
+  const [projectOrder, setProjectOrder] = reactUse.useLocalStorage<string[]>(`${organizationId}:project-tree-order`, []);
+  const expandedProjectIdList = Array.isArray(expandedProjectIds) ? expandedProjectIds : [];
+  const expandedCollectionKeyList = Array.isArray(expandedCollectionKeys) ? expandedCollectionKeys : [];
+  const expandedRequestGroupKeyList = Array.isArray(expandedRequestGroupKeys) ? expandedRequestGroupKeys : [];
+  const workspaceOrderMap = workspaceOrderByProjectId && typeof workspaceOrderByProjectId === 'object' ? workspaceOrderByProjectId : {};
+  const projectOrderList = Array.isArray(projectOrder) ? projectOrder : [];
   const [importModalType, setImportModalType] = useState<'file' | 'clipboard' | 'uri' | null>(null);
+  const [collectionActionTarget, setCollectionActionTarget] = useState<{
+    project: Project & { gitRepository?: GitRepository };
+    workspace: Workspace;
+  } | null>(null);
+  const [workspaceActionTarget, setWorkspaceActionTarget] = useState<{
+    project: Project & { gitRepository?: GitRepository };
+    file: InsomniaFile;
+    workspace: Workspace;
+  } | null>(null);
+  const [isWorkspaceImportModalOpen, setIsWorkspaceImportModalOpen] = useState(false);
+  const [isWorkspaceExportModalOpen, setIsWorkspaceExportModalOpen] = useState(false);
+  const [isWorkspaceDuplicateModalOpen, setIsWorkspaceDuplicateModalOpen] = useState(false);
+  const [isWorkspaceSettingsModalOpen, setIsWorkspaceSettingsModalOpen] = useState(false);
+  const [isCollectionImportModalOpen, setIsCollectionImportModalOpen] = useState(false);
+  const [isCollectionPasteCurlModalOpen, setIsCollectionPasteCurlModalOpen] = useState(false);
+  const [folderPasteCurlTarget, setFolderPasteCurlTarget] = useState<{
+    project: Project & { gitRepository?: GitRepository };
+    workspace: Workspace;
+    parentId: string;
+  } | null>(null);
+  const [isFolderPasteCurlModalOpen, setIsFolderPasteCurlModalOpen] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
-  const [isUpdateProjectModalOpen, setIsUpdateProjectModalOpen] = useState(false);
+  const [projectSettingsTarget, setProjectSettingsTarget] = useState<
+    (Project & { gitRepository?: GitRepository }) | null
+  >(null);
   const organization = organizationData?.organizations.find(o => o.id === organizationId);
   const isUserOwner =
     organization && userSession.accountId && isOwnerOfOrganization({ organization, accountId: userSession.accountId });
@@ -513,8 +749,20 @@ const Component = () => {
 
   const tabNavigate = useTabNavigate();
 
+  const projectFilesWithRemoteByProjectId = useMemo(() => {
+    const filesByProjectId = { ...projectFilesByProjectId };
+
+    if (activeProject?._id) {
+      const currentProjectFiles = filesByProjectId[activeProject._id] || [];
+      const existingIds = new Set(currentProjectFiles.map(file => file.id));
+      const unsyncedFiles = (remoteFiles || []).filter(file => !existingIds.has(file.id));
+      filesByProjectId[activeProject._id] = [...currentProjectFiles, ...unsyncedFiles];
+    }
+
+    return filesByProjectId;
+  }, [projectFilesByProjectId, activeProject?._id, remoteFiles]);
+
   const filteredFiles = allFiles
-    .filter(w => (workspaceListScope !== 'all' ? w.scope === workspaceListScope : true))
     .filter(workspace => {
       if (!workspaceListFilter) return true;
       const filterStr = workspaceListFilter.toLowerCase();
@@ -608,6 +856,48 @@ const Component = () => {
     };
   });
 
+  const orderedProjectsWithPresence = useMemo(() => {
+    const activeProjectIds = new Set(projectsWithPresence.map(project => project._id));
+    const normalizedOrder = projectOrderList.filter(projectId => activeProjectIds.has(projectId));
+    const missingIds = projectsWithPresence
+      .map(project => project._id)
+      .filter(projectId => !normalizedOrder.includes(projectId));
+    const fullOrder = [...normalizedOrder, ...missingIds];
+    const rankById = new Map(fullOrder.map((projectId, index) => [projectId, index]));
+
+    return projectsWithPresence
+      .slice()
+      .sort((a, b) => (rankById.get(a._id) ?? Number.MAX_SAFE_INTEGER) - (rankById.get(b._id) ?? Number.MAX_SAFE_INTEGER));
+  }, [projectOrderList, projectsWithPresence]);
+
+  useEffect(() => {
+    const activeProjectIds = new Set(projectsWithPresence.map(project => project._id));
+    const normalizedOrder = projectOrderList.filter(projectId => activeProjectIds.has(projectId));
+    const missingIds = projectsWithPresence
+      .map(project => project._id)
+      .filter(projectId => !normalizedOrder.includes(projectId));
+    const nextOrder = [...normalizedOrder, ...missingIds];
+
+    if (nextOrder.join('|') !== projectOrderList.join('|')) {
+      setProjectOrder(nextOrder);
+    }
+  }, [projectOrderList, projectsWithPresence, setProjectOrder]);
+
+  useEffect(() => {
+    const nextOrderMap = { ...workspaceOrderMap };
+
+    orderedProjectsWithPresence.forEach(project => {
+      const workspaceIds = (projectFilesWithRemoteByProjectId[project._id] || []).map(file => file.id);
+      const existing = (workspaceOrderMap[project._id] || []).filter(id => workspaceIds.includes(id));
+      const missing = workspaceIds.filter(id => !existing.includes(id));
+      nextOrderMap[project._id] = [...existing, ...missing];
+    });
+
+    if (JSON.stringify(nextOrderMap) !== JSON.stringify(workspaceOrderMap)) {
+      setWorkspaceOrderByProjectId(nextOrderMap);
+    }
+  }, [orderedProjectsWithPresence, projectFilesWithRemoteByProjectId, setWorkspaceOrderByProjectId, workspaceOrderMap]);
+
   const navigate = useNavigate();
 
   const [newWorkspaceModalState, setNewWorkspaceModalState] = useState<{
@@ -683,76 +973,922 @@ const Component = () => {
     },
   ];
 
-  const scopeActionList: {
-    id: string;
-    label: string;
-    icon: IconProp;
-    action?: {
-      icon: IconName;
-      label: string;
-      run: () => void;
-    };
-  }[] = [
-    {
-      id: 'all',
-      label: `All files (${allFilesCount})`,
-      icon: 'border-all',
-    },
-    {
-      id: 'design',
-      label: `Documents (${documentsCount})`,
-      icon: 'file',
-      action: {
-        icon: 'plus',
-        label: 'New design document',
-        run: createNewDocument,
+  const workspaceScopeOrder: Record<InsomniaFile['scope'], number> = {
+    collection: 0,
+    environment: 1,
+    mcp: 2,
+    design: 3,
+    'mock-server': 4,
+    unsynced: 5,
+  };
+
+  const workspaceScopeIcon: Record<InsomniaFile['scope'], IconProp> = {
+    collection: 'bars',
+    environment: 'code',
+    mcp: ['fac', 'mcp'] as unknown as IconProp,
+    design: 'file',
+    'mock-server': 'server',
+    unsynced: 'cloud-download',
+  };
+
+  const toggleProjectExpanded = (id: string) => {
+    const next = expandedProjectIdList.includes(id)
+      ? expandedProjectIdList.filter(value => value !== id)
+      : [...expandedProjectIdList, id];
+    setExpandedProjectIds(next);
+  };
+
+  const toggleCollectionExpanded = (key: string) => {
+    const next = expandedCollectionKeyList.includes(key)
+      ? expandedCollectionKeyList.filter(value => value !== key)
+      : [...expandedCollectionKeyList, key];
+    setExpandedCollectionKeys(next);
+  };
+
+  const toggleRequestGroupExpanded = (key: string) => {
+    const next = expandedRequestGroupKeyList.includes(key)
+      ? expandedRequestGroupKeyList.filter(value => value !== key)
+      : [...expandedRequestGroupKeyList, key];
+    setExpandedRequestGroupKeys(next);
+  };
+
+  const openFileFromTree = (project: (Project & { gitRepository?: GitRepository }), file: InsomniaFile, withTab?: boolean) => {
+    if (file.scope === 'unsynced') {
+      if (project._id === activeProject?._id && project.remoteId && file.remoteId) {
+        pullFileFetcher.submit({
+          backendProjectId: file.remoteId,
+          remoteId: project.remoteId,
+          organizationId,
+        });
+      }
+      return;
+    }
+
+    if (!file.workspace) {
+      return;
+    }
+
+    const searchParams = new URLSearchParams();
+    if (file.scope === 'collection') {
+      searchParams.set('doNotSkipToActiveRequest', 'true');
+    }
+
+    tabNavigate(
+      {
+        organization: organizationId,
+        project,
+        workspace: file.workspace,
+        item: file.workspace,
       },
-    },
-    {
-      id: 'collection',
-      label: `Collections (${collectionsCount})`,
-      icon: 'bars',
-      action: {
-        icon: 'plus',
-        label: 'New request collection',
-        run: createNewCollection,
+      {
+        withTab,
+        shouldNavigate: true,
+        searchParams,
       },
-    },
-    {
-      id: 'mcp',
-      label: `MCP Clients (${mcpClientsCount})`,
-      icon: ['fac', 'mcp'] as unknown as IconProp,
-      action: {
-        icon: 'plus',
-        label: 'New mcp client',
-        run: createNewMcpClient,
+    );
+  };
+
+  const openCollectionTreeNode = ({
+    project,
+    workspace,
+    node,
+    withTab,
+  }: {
+    project: Project & { gitRepository?: GitRepository };
+    workspace: Workspace;
+    node: CollectionTreeNode;
+    withTab?: boolean;
+  }) => {
+    tabNavigate(
+      {
+        organization: organizationId,
+        project,
+        workspace,
+        item: node.doc,
       },
-    },
-    ...(canCreateMockServer
-      ? [
-          {
-            id: 'mock-server',
-            label: `Mock (${mockServersCount})`,
-            icon: 'server' as IconName,
-            action: {
-              icon: 'plus' as IconName,
-              label: 'New Mock Server',
-              run: createNewMockServer,
+      {
+        withTab,
+        shouldNavigate: true,
+      },
+    );
+  };
+
+  const getProjectById = (id: string) => projectsWithPresence.find(project => project._id === id);
+
+  const getStorageLabel = (project: Project) => {
+    if (isGitProject(project)) {
+      return 'Git';
+    }
+
+    if (isRemoteProject(project)) {
+      return 'Cloud';
+    }
+
+    return 'Local';
+  };
+
+  const showCrossProjectMoveConfirmation = ({
+    sourceProjectId,
+    targetProjectId,
+    onConfirm,
+  }: {
+    sourceProjectId: string;
+    targetProjectId: string;
+    onConfirm: () => void;
+  }) => {
+    if (sourceProjectId === targetProjectId) {
+      onConfirm();
+      return;
+    }
+
+    const sourceProject = getProjectById(sourceProjectId);
+    const targetProject = getProjectById(targetProjectId);
+
+    if (!sourceProject || !targetProject) {
+      return;
+    }
+
+    const sourceStorage = getStorageLabel(sourceProject);
+    const targetStorage = getStorageLabel(targetProject);
+
+    showModal(AskModal, {
+      title: 'Move to Another Project',
+      message: `Move this item from ${sourceProject.name} (${sourceStorage}) to ${targetProject.name} (${targetStorage})? This changes where data is stored and may create uncommitted changes.`,
+      yesText: 'Move',
+      noText: 'Cancel',
+      onDone: async isYes => {
+        if (isYes) {
+          onConfirm();
+        }
+      },
+    });
+  };
+
+  const handleProjectReorder = (payload: ProjectSidebarTreeDropPayload) => {
+    const currentOrder = orderedProjectsWithPresence.map(project => project._id);
+    const sourceIndex = currentOrder.indexOf(payload.source.id);
+    const targetIndex = currentOrder.indexOf(payload.target.id);
+
+    if (sourceIndex === -1 || targetIndex === -1) {
+      return;
+    }
+
+    const nextOrder = currentOrder.filter(id => id !== payload.source.id);
+    const insertionIndex = payload.position === 'before' ? targetIndex : targetIndex + 1;
+    nextOrder.splice(Math.min(insertionIndex, nextOrder.length), 0, payload.source.id);
+    setProjectOrder(nextOrder);
+  };
+
+  const reorderWorkspaceRows = ({
+    sourceWorkspaceId,
+    sourceProjectId,
+    targetWorkspaceId,
+    targetProjectId,
+    position,
+  }: {
+    sourceWorkspaceId: string;
+    sourceProjectId: string;
+    targetWorkspaceId: string;
+    targetProjectId: string;
+    position: 'before' | 'after';
+  }) => {
+    const nextOrderMap = { ...workspaceOrderMap };
+
+    const sourceIds = (projectFilesWithRemoteByProjectId[sourceProjectId] || []).map(file => file.id);
+    const targetIds = (projectFilesWithRemoteByProjectId[targetProjectId] || []).map(file => file.id);
+
+    const sourceOrder = (nextOrderMap[sourceProjectId] || sourceIds).filter(id => sourceIds.includes(id));
+    const targetOrder = (nextOrderMap[targetProjectId] || targetIds).filter(id => targetIds.includes(id));
+
+    const cleanedSource = sourceOrder.filter(id => id !== sourceWorkspaceId);
+    const baseTarget = (sourceProjectId === targetProjectId ? cleanedSource : targetOrder).filter(
+      id => id !== sourceWorkspaceId,
+    );
+    const targetIndex = baseTarget.indexOf(targetWorkspaceId);
+
+    if (targetIndex === -1) {
+      return;
+    }
+
+    const insertAt = position === 'before' ? targetIndex : targetIndex + 1;
+    const nextTarget = baseTarget.slice();
+    nextTarget.splice(Math.min(insertAt, nextTarget.length), 0, sourceWorkspaceId);
+
+    nextOrderMap[targetProjectId] = nextTarget;
+    if (sourceProjectId !== targetProjectId) {
+      nextOrderMap[sourceProjectId] = cleanedSource;
+    }
+
+    setWorkspaceOrderByProjectId(nextOrderMap);
+  };
+
+  const handleValidTreeDrop = (payload: ProjectSidebarTreeDropPayload) => {
+    const { source, target, position } = payload;
+
+    if (source.type === 'project' && target.type === 'project') {
+      handleProjectReorder(payload);
+      return;
+    }
+
+    if (source.type === 'workspace' && target.type === 'project') {
+      showCrossProjectMoveConfirmation({
+        sourceProjectId: source.projectId,
+        targetProjectId: target.projectId,
+        onConfirm: () => {
+          moveWorkspaceFetcher.submit(organizationId, target.projectId, source.id);
+          const sourceIds = (projectFilesWithRemoteByProjectId[source.projectId] || []).map(file => file.id);
+          const targetIds = (projectFilesWithRemoteByProjectId[target.projectId] || []).map(file => file.id);
+          const nextOrderMap = { ...workspaceOrderMap };
+          nextOrderMap[source.projectId] = (nextOrderMap[source.projectId] || sourceIds).filter(id => id !== source.id);
+          const targetOrder = (nextOrderMap[target.projectId] || targetIds).filter(id => id !== source.id);
+          nextOrderMap[target.projectId] = [...targetOrder, source.id];
+          setWorkspaceOrderByProjectId(nextOrderMap);
+        },
+      });
+      return;
+    }
+
+    if (source.type === 'workspace' && target.type === 'workspace' && (position === 'before' || position === 'after')) {
+      showCrossProjectMoveConfirmation({
+        sourceProjectId: source.projectId,
+        targetProjectId: target.projectId,
+        onConfirm: () => {
+          if (source.projectId !== target.projectId) {
+            moveWorkspaceFetcher.submit(organizationId, target.projectId, source.id);
+          }
+          reorderWorkspaceRows({
+            sourceWorkspaceId: source.id,
+            sourceProjectId: source.projectId,
+            targetWorkspaceId: target.id,
+            targetProjectId: target.projectId,
+            position,
+          });
+        },
+      });
+      return;
+    }
+
+    if ((source.type === 'request' || source.type === 'request-group') && target.type !== 'project') {
+      if (target.type !== 'workspace' && target.type !== 'request' && target.type !== 'request-group') {
+        return;
+      }
+      const sourceType = source.type === 'request' ? 'request' : 'request-group';
+      const targetType =
+        target.type === 'workspace' ? 'workspace' : target.type === 'request' ? 'request' : 'request-group';
+
+      showCrossProjectMoveConfirmation({
+        sourceProjectId: source.projectId,
+        targetProjectId: target.projectId,
+        onConfirm: () => {
+          moveCollectionNodeFetcher.submit({
+            organizationId,
+            projectId,
+            params: {
+              sourceId: source.id,
+              sourceType,
+              targetId: target.id,
+              targetType,
+              dropPosition: position,
             },
-          },
-        ]
-      : []),
+          });
+        },
+      });
+    }
+  };
+
+  const handleInvalidTreeDrop = ({ reason }: ProjectSidebarTreeDropPayload & { reason: string }) => {
+    showToast({
+      icon: 'exclamation-triangle',
+      status: 'warning',
+      title: 'Move not allowed',
+      description: reason,
+    });
+  };
+
+  const createCollectionRequest = ({
+    project,
+    workspace,
+    requestType,
+    parentId,
+    req,
+  }: {
+    project: Project & { gitRepository?: GitRepository };
+    workspace: Workspace;
+    requestType: 'HTTP' | 'Event Stream' | 'GraphQL' | 'gRPC' | 'WebSocket' | 'SocketIO' | 'From Curl';
+    parentId?: string;
+    req?: Partial<Request>;
+  }) => {
+    createRequestFetcher.submit({
+      organizationId,
+      projectId: project._id,
+      workspaceId: workspace._id,
+      requestType,
+      parentId: parentId || workspace._id,
+      req,
+    });
+  };
+
+  const getRequestMethodBadgeClass = (method: string) =>
+    (
+      {
+        GET: 'bg-[rgba(var(--color-surprise-rgb),0.5)] text-(--color-font-surprise)',
+        POST: 'bg-[rgba(var(--color-success-rgb),0.5)] text-(--color-font-success)',
+        HEAD: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
+        OPTIONS: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
+        DELETE: 'bg-[rgba(var(--color-danger-rgb),0.5)] text-(--color-font-danger)',
+        PUT: 'bg-[rgba(var(--color-warning-rgb),0.5)] text-(--color-font-warning)',
+        PATCH: 'bg-[rgba(var(--color-notice-rgb),0.5)] text-(--color-font-notice)',
+      } as Record<string, string>
+    )[method] || 'bg-(--hl-md) text-(--color-font)';
+
+  const getProjectActions = (project: (Project & { gitRepository?: GitRepository })): ProjectSidebarTreeAction[] => [
     {
-      id: 'environment',
-      label: `Environments (${environmentsCount})`,
-      icon: 'code',
-      action: {
-        icon: 'plus',
-        label: 'New Environment',
-        run: createNewGlobalEnvironment,
-      },
+      id: 'new-collection',
+      label: 'New Collection',
+      onAction: () =>
+        createNewWorkspaceFetcher.submit({
+          organizationId,
+          projectId: project._id,
+          scope: 'collection',
+          name: 'My Collection',
+        }),
+    },
+    {
+      id: 'new-environment',
+      label: 'New Environment',
+      onAction: () =>
+        createNewWorkspaceFetcher.submit({
+          organizationId,
+          projectId: project._id,
+          scope: 'environment',
+          name: 'New Environment',
+        }),
+    },
+    {
+      id: 'new-mcp',
+      label: 'New MCP Client',
+      onAction: () =>
+        createNewWorkspaceFetcher.submit({
+          organizationId,
+          projectId: project._id,
+          scope: 'mcp',
+          name: 'MCP Client',
+        }),
+    },
+    {
+      id: 'new-document',
+      label: 'New Document',
+      onAction: () =>
+        createNewWorkspaceFetcher.submit({
+          organizationId,
+          projectId: project._id,
+          scope: 'design',
+          name: 'my-spec.yaml',
+        }),
+    },
+    {
+      id: 'settings',
+      label: 'Settings',
+      onAction: () => setProjectSettingsTarget(project),
+    },
+    {
+      id: 'delete',
+      label: 'Delete',
+      isDanger: true,
+      onAction: () =>
+        showModal(AskModal, {
+          title: 'Delete Project',
+          message: isGitProject(project)
+            ? `You are deleting the Git project "${project.name}". Deleting this project will not delete the remote repository but all your local changes will be lost. Do you really want to continue?`
+            : `You are deleting the project "${project.name}" that may have collaborators. As a result of this, the project will be permanently deleted for every collaborator of the organization. Do you really want to continue?`,
+          yesText: 'Delete',
+          noText: 'Cancel',
+          color: 'danger',
+          onDone: async isYes => {
+            if (isYes) {
+              deleteProjectFetcher.submit({
+                organizationId,
+                projectId: project._id,
+              });
+            }
+          },
+        }),
     },
   ];
+
+  const getWorkspaceActions = (
+    project: (Project & { gitRepository?: GitRepository }),
+    file: InsomniaFile,
+  ): ProjectSidebarTreeAction[] => {
+    if (file.scope === 'unsynced' || !file.workspace) {
+      return [];
+    }
+    const workspace = file.workspace;
+    const actions: ProjectSidebarTreeAction[] = [
+      {
+        id: 'open-new-tab',
+        label: 'Open in New Tab',
+        onAction: () => openFileFromTree(project, file, true),
+      },
+      {
+        id: 'rename',
+        label: 'Rename',
+        onAction: () =>
+          showModal(PromptModal, {
+            title: `Rename ${scopeToLabelMap[file.scope]}`,
+            defaultValue: file.name,
+            submitName: 'Rename',
+            label: 'Name',
+            selectText: true,
+            onComplete: name =>
+              updateWorkspaceFetcher.submit({
+                organizationId,
+                projectId: project._id,
+                patch: {
+                  workspaceId: workspace._id,
+                  name,
+                },
+              }),
+          }),
+      },
+    ];
+
+    if (file.scope !== 'mcp') {
+      actions.push(
+        {
+          id: 'import',
+          label: 'Import',
+          onAction: () => {
+            setWorkspaceActionTarget({ project, file, workspace });
+            setIsWorkspaceImportModalOpen(true);
+          },
+        },
+        {
+          id: 'run-collection',
+          label: 'Run Collection',
+          onAction: () => navigate(`/organization/${organizationId}/project/${project._id}/workspace/${workspace._id}/debug/runner?folder=`),
+        },
+        {
+          id: 'duplicate-move',
+          label: 'Duplicate / Move',
+          onAction: () => {
+            setWorkspaceActionTarget({ project, file, workspace });
+            setIsWorkspaceDuplicateModalOpen(true);
+          },
+        },
+      );
+    }
+
+    actions.push({
+      id: 'export',
+      label: 'Export',
+      onAction: () => {
+        if (file.scope === 'mock-server') {
+          exportMockServerToFile(workspace);
+          return;
+        }
+        if (file.scope === 'environment') {
+          exportGlobalEnvironmentToFile(workspace);
+          return;
+        }
+        if (file.scope === 'mcp') {
+          exportMcpClientToFile(workspace);
+          return;
+        }
+
+        setWorkspaceActionTarget({ project, file, workspace });
+        setIsWorkspaceExportModalOpen(true);
+      },
+    });
+
+    if (file.scope === 'mock-server') {
+      actions.push({
+        id: 'generate-collection',
+        label: 'Generate Collection',
+        onAction: () =>
+          generateCollectionFetcher.submit({
+            organizationId,
+            projectId: project._id,
+            workspaceId: workspace._id,
+          }),
+      });
+    }
+
+    actions.push({
+      id: 'settings',
+      label: 'Settings',
+      onAction: () => {
+        setWorkspaceActionTarget({ project, file, workspace });
+        setIsWorkspaceSettingsModalOpen(true);
+      },
+    }, {
+      id: 'delete',
+      label: 'Delete',
+      isDanger: true,
+      onAction: () =>
+        showModal(AskModal, {
+          title: `Delete ${scopeToLabelMap[file.scope]}`,
+          message: `Do you really want to delete "${file.name}"?`,
+          yesText: 'Delete',
+          noText: 'Cancel',
+          color: 'danger',
+          onDone: async (isYes: boolean) => {
+            if (isYes) {
+              deleteWorkspaceFetcher.submit({
+                organizationId,
+                projectId: project._id,
+                workspaceId: workspace._id,
+              });
+            }
+          },
+        }),
+    });
+
+    return actions;
+  };
+
+  const getCollectionActions = (
+    project: (Project & { gitRepository?: GitRepository }),
+    file: InsomniaFile,
+  ): ProjectSidebarTreeAction[] => {
+    if (!file.workspace) {
+      return [];
+    }
+    return [
+      {
+        id: 'new-folder',
+        label: 'New Folder',
+        onAction: () =>
+          showModal(PromptModal, {
+            title: 'New Folder',
+            defaultValue: 'My Folder',
+            submitName: 'Create',
+            label: 'Name',
+            selectText: true,
+            onComplete: name =>
+              createRequestGroupFetcher.submit({
+                organizationId,
+                projectId: project._id,
+                workspaceId: file.workspace!._id,
+                parentId: file.workspace!._id,
+                name,
+              }),
+          }),
+      },
+      {
+        id: 'new-http',
+        label: 'HTTP Request',
+        onAction: () => createCollectionRequest({ project, workspace: file.workspace!, requestType: 'HTTP' }),
+      },
+      {
+        id: 'new-event-stream',
+        label: 'Event Stream Request (SSE)',
+        onAction: () =>
+          createCollectionRequest({ project, workspace: file.workspace!, requestType: 'Event Stream' }),
+      },
+      {
+        id: 'new-graphql',
+        label: 'GraphQL Request',
+        onAction: () => createCollectionRequest({ project, workspace: file.workspace!, requestType: 'GraphQL' }),
+      },
+      {
+        id: 'new-grpc',
+        label: 'gRPC Request',
+        onAction: () => createCollectionRequest({ project, workspace: file.workspace!, requestType: 'gRPC' }),
+      },
+      {
+        id: 'new-websocket',
+        label: 'WebSocket Request',
+        onAction: () => createCollectionRequest({ project, workspace: file.workspace!, requestType: 'WebSocket' }),
+      },
+      {
+        id: 'new-socketio',
+        label: 'Socket.IO Request',
+        onAction: () => createCollectionRequest({ project, workspace: file.workspace!, requestType: 'SocketIO' }),
+      },
+      {
+        id: 'run-collection',
+        label: 'Run Collection',
+        onAction: () =>
+          tabNavigate(
+            {
+              organization: organizationId,
+              project,
+              workspace: file.workspace!,
+              item: file.workspace!,
+            },
+            {
+              shouldNavigate: true,
+              asRunner: true,
+            },
+          ),
+      },
+      {
+        id: 'rename-collection',
+        label: 'Rename Collection',
+        onAction: () =>
+          showModal(PromptModal, {
+            title: 'Rename Collection',
+            defaultValue: file.name,
+            submitName: 'Rename',
+            label: 'Name',
+            selectText: true,
+            onComplete: name =>
+              updateWorkspaceFetcher.submit({
+                organizationId,
+                projectId: project._id,
+                patch: {
+                  workspaceId: file.workspace!._id,
+                  name,
+                },
+              }),
+          }),
+      },
+      {
+        id: 'import-curl',
+        label: 'Import From Curl',
+        onAction: () => {
+          setCollectionActionTarget({ project, workspace: file.workspace! });
+          setIsCollectionPasteCurlModalOpen(true);
+        },
+      },
+      {
+        id: 'import-file',
+        label: 'Import From File',
+        onAction: () => {
+          setCollectionActionTarget({ project, workspace: file.workspace! });
+          setIsCollectionImportModalOpen(true);
+        },
+      },
+    ];
+  };
+
+  const getFolderActions = (
+    project: (Project & { gitRepository?: GitRepository }),
+    file: InsomniaFile,
+    node: ProjectSidebarTreeNode,
+  ): ProjectSidebarTreeAction[] => {
+    if (!file.workspace) {
+      return [];
+    }
+    const requestGroup = node.doc as RequestGroup;
+    return [
+      {
+        id: 'open-new-tab',
+        label: 'Open in New Tab',
+        onAction: () => openCollectionTreeNode({ project, workspace: file.workspace!, node, withTab: true }),
+      },
+      {
+        id: 'new-folder',
+        label: 'New Folder',
+        onAction: () =>
+          showModal(PromptModal, {
+            title: 'New Folder',
+            defaultValue: 'My Folder',
+            submitName: 'Create',
+            label: 'Name',
+            selectText: true,
+            onComplete: name =>
+              createRequestGroupFetcher.submit({
+                organizationId,
+                projectId: project._id,
+                workspaceId: file.workspace!._id,
+                parentId: requestGroup._id,
+                name,
+              }),
+          }),
+      },
+      {
+        id: 'new-http',
+        label: 'HTTP Request',
+        onAction: () =>
+          createCollectionRequest({ project, workspace: file.workspace!, requestType: 'HTTP', parentId: requestGroup._id }),
+      },
+      {
+        id: 'new-event-stream',
+        label: 'Event Stream Request (SSE)',
+        onAction: () =>
+          createCollectionRequest({
+            project,
+            workspace: file.workspace!,
+            requestType: 'Event Stream',
+            parentId: requestGroup._id,
+          }),
+      },
+      {
+        id: 'new-graphql',
+        label: 'GraphQL Request',
+        onAction: () =>
+          createCollectionRequest({
+            project,
+            workspace: file.workspace!,
+            requestType: 'GraphQL',
+            parentId: requestGroup._id,
+          }),
+      },
+      {
+        id: 'new-grpc',
+        label: 'gRPC Request',
+        onAction: () =>
+          createCollectionRequest({ project, workspace: file.workspace!, requestType: 'gRPC', parentId: requestGroup._id }),
+      },
+      {
+        id: 'new-websocket',
+        label: 'WebSocket Request',
+        onAction: () =>
+          createCollectionRequest({
+            project,
+            workspace: file.workspace!,
+            requestType: 'WebSocket',
+            parentId: requestGroup._id,
+          }),
+      },
+      {
+        id: 'new-socketio',
+        label: 'Socket.IO Request',
+        onAction: () =>
+          createCollectionRequest({
+            project,
+            workspace: file.workspace!,
+            requestType: 'SocketIO',
+            parentId: requestGroup._id,
+          }),
+      },
+      {
+        id: 'run-folder',
+        label: 'Run Folder',
+        onAction: () =>
+          tabNavigate(
+            {
+              organization: organizationId,
+              project,
+              workspace: file.workspace!,
+              item: requestGroup,
+            },
+            {
+              shouldNavigate: true,
+              asRunner: true,
+            },
+          ),
+      },
+      {
+        id: 'import-curl',
+        label: 'Import From Curl',
+        onAction: () => {
+          setFolderPasteCurlTarget({ project, workspace: file.workspace!, parentId: requestGroup._id });
+          setIsFolderPasteCurlModalOpen(true);
+        },
+      },
+      {
+        id: 'duplicate',
+        label: 'Duplicate',
+        onAction: () =>
+          showModal(PromptModal, {
+            title: 'Duplicate Folder',
+            defaultValue: requestGroup.name,
+            submitName: 'Create',
+            label: 'New Name',
+            selectText: true,
+            onComplete: name =>
+              duplicateRequestGroupFetcher.submit({
+                organizationId,
+                projectId: project._id,
+                workspaceId: file.workspace!._id,
+                requestGroupData: {
+                  _id: requestGroup._id,
+                  name,
+                },
+              }),
+          }),
+      },
+      {
+        id: 'rename',
+        label: 'Rename',
+        onAction: () =>
+          showModal(PromptModal, {
+            title: 'Rename Folder',
+            defaultValue: requestGroup.name,
+            submitName: 'Save',
+            label: 'Name',
+            selectText: true,
+            onComplete: name =>
+              updateRequestGroupFetcher.submit({
+                organizationId,
+                projectId: project._id,
+                workspaceId: file.workspace!._id,
+                requestGroupId: requestGroup._id,
+                patch: { name },
+              }),
+          }),
+      },
+      {
+        id: 'delete',
+        label: 'Delete',
+        isDanger: true,
+        onAction: () =>
+          showModal(AskModal, {
+            title: 'Delete Folder',
+            message: `Do you really want to delete "${requestGroup.name}"?`,
+            yesText: 'Delete',
+            noText: 'Cancel',
+            color: 'danger',
+            onDone: async (isYes: boolean) => {
+              if (isYes) {
+                deleteRequestGroupFetcher.submit({
+                  organizationId,
+                  projectId: project._id,
+                  workspaceId: file.workspace!._id,
+                  id: requestGroup._id,
+                });
+              }
+            },
+          }),
+      },
+    ];
+  };
+
+  const getRequestActions = (
+    project: (Project & { gitRepository?: GitRepository }),
+    file: InsomniaFile,
+    node: ProjectSidebarTreeNode,
+  ): ProjectSidebarTreeAction[] => {
+    if (!file.workspace) {
+      return [];
+    }
+    const request = node.doc as RequestLike;
+    return [
+      {
+        id: 'open-new-tab',
+        label: 'Open in New Tab',
+        onAction: () => openCollectionTreeNode({ project, workspace: file.workspace!, node, withTab: true }),
+      },
+      {
+        id: 'duplicate',
+        label: 'Duplicate',
+        onAction: () =>
+          showModal(PromptModal, {
+            title: 'Duplicate Request',
+            defaultValue: request.name,
+            submitName: 'Create',
+            label: 'New Name',
+            selectText: true,
+            onComplete: name =>
+              duplicateRequestFetcher.submit({
+                organizationId,
+                projectId: project._id,
+                workspaceId: file.workspace!._id,
+                requestId: request._id,
+                name,
+              }),
+          }),
+      },
+      {
+        id: 'rename',
+        label: 'Rename',
+        onAction: () =>
+          showModal(PromptModal, {
+            title: 'Rename Request',
+            defaultValue: request.name,
+            submitName: 'Save',
+            label: 'Name',
+            selectText: true,
+            onComplete: name =>
+              updateRequestFetcher.submit({
+                organizationId,
+                projectId: project._id,
+                workspaceId: file.workspace!._id,
+                requestId: request._id,
+                patch: {
+                  name,
+                },
+              }),
+          }),
+      },
+      {
+        id: 'delete',
+        label: 'Delete',
+        isDanger: true,
+        onAction: () =>
+          showModal(AskModal, {
+            title: 'Delete Request',
+            message: `Do you really want to delete "${request.name}"?`,
+            yesText: 'Delete',
+            noText: 'Cancel',
+            color: 'danger',
+            onDone: async (isYes: boolean) => {
+              if (isYes) {
+                deleteRequestFetcher.submit({
+                  organizationId,
+                  projectId: project._id,
+                  workspaceId: file.workspace!._id,
+                  id: request._id,
+                });
+              }
+            },
+          }),
+      },
+    ];
+  };
 
   const isRemoteProjectInconsistent = activeProject && isRemoteProject(activeProject) && !storageRules.enableCloudSync;
   const isLocalProjectInconsistent =
@@ -779,60 +1915,59 @@ const Component = () => {
             collapsible
           >
             <div className="flex flex-1 flex-col divide-y divide-solid divide-(--hl-md) overflow-hidden">
-              <OrganizationSelect
-                organizationId={organizationId}
-                organizations={organizationData?.organizations || []}
-                onSelect={id => navigate(`/organization/${id}`)}
-              />
-              <ProjectListSidebar
-                organizationId={organizationId}
-                activeProjectId={activeProject?._id}
-                projects={projectsWithPresence}
-                projectsCount={projectsCount}
-                storageRules={storageRules}
-                onCreateProject={() => setIsNewProjectModalOpen(true)}
-              />
+              <div className="flex flex-1 flex-col overflow-hidden">
+                <ProjectSidebarTree
+                  projects={orderedProjectsWithPresence}
+                  projectFilesByProjectId={projectFilesWithRemoteByProjectId}
+                  collectionTreeByWorkspaceId={collectionTreeByWorkspaceId}
+                  workspaceScopeOrder={workspaceScopeOrder}
+                  workspaceOrderByProjectId={workspaceOrderMap}
+                  workspaceScopeIcon={workspaceScopeIcon}
+                  expandedProjectIds={expandedProjectIdList}
+                  expandedCollectionKeys={expandedCollectionKeyList}
+                  expandedRequestGroupKeys={expandedRequestGroupKeyList}
+                  activeProjectId={activeProject?._id}
+                  activeWorkspaceId={workspaceId}
+                  activeRequestId={requestId}
+                  activeRequestGroupId={requestGroupId}
+                  onToggleProjectExpanded={toggleProjectExpanded}
+                  onToggleCollectionExpanded={toggleCollectionExpanded}
+                  onToggleRequestGroupExpanded={toggleRequestGroupExpanded}
+                  onOpenProject={project => navigate(`/organization/${organizationId}/project/${project._id}`)}
+                  onOpenWorkspace={(project, file, withTab) => openFileFromTree(project, file, withTab)}
+                  onOpenCollectionNode={(project, file, node, withTab) => {
+                    if (!file.workspace) {
+                      return;
+                    }
+                    openCollectionTreeNode({ project, workspace: file.workspace, node, withTab });
+                  }}
+                  isPrimaryClickModifier={isPrimaryClickModifier}
+                  getProjectIcon={project =>
+                    isRemoteProject(project)
+                      ? 'globe-americas'
+                      : isGitProject(project)
+                        ? (['fab', 'git-alt'] as unknown as IconProp)
+                        : 'laptop'
+                  }
+                  renderProjectMeta={project =>
+                    project.presence.length > 0 ? (
+                      <AvatarGroup size="small" maxAvatars={3} items={project.presence} />
+                    ) : null
+                  }
+                  getRequestMethodBadgeClass={getRequestMethodBadgeClass}
+                  getRequestMethodLabel={method => getMethodShortHand({ method } as Request)}
+                  getProjectActions={getProjectActions}
+                  getWorkspaceActions={getWorkspaceActions}
+                  getCollectionActions={getCollectionActions}
+                  getFolderActions={getFolderActions}
+                  getRequestActions={getRequestActions}
+                  onValidDrop={handleValidTreeDrop}
+                  onInvalidDrop={handleInvalidTreeDrop}
+                  onCreateProject={() => setIsNewProjectModalOpen(true)}
+                />
+              </div>
               {activeProject && (
                 <>
-                  <GridList
-                    aria-label="Scope filter"
-                    items={scopeActionList}
-                    className="flex-1 shrink-0 overflow-y-auto py-(--padding-sm) data-empty:py-0"
-                    disallowEmptySelection
-                    selectedKeys={[workspaceListScope || 'all']}
-                    selectionMode="single"
-                    onSelectionChange={keys => {
-                      if (keys !== 'all') {
-                        const [value] = keys.values();
-
-                        setWorkspaceListScope(value.toString());
-                      }
-                    }}
-                  >
-                    {item => {
-                      return (
-                        <GridListItem textValue={item.label} className="group outline-hidden select-none">
-                          <div className="relative flex h-12 w-full items-center gap-2 overflow-hidden px-4 text-(--hl) outline-hidden transition-colors select-none group-hover:bg-(--hl-xs) group-focus:bg-(--hl-sm) group-aria-selected:bg-(--hl-sm) group-aria-selected:text-(--color-font)">
-                            <span className="flex h-6 w-6 items-center justify-center">
-                              <Icon icon={item.icon} className="w-6" />
-                            </span>
-
-                            <span className="truncate capitalize">{item.label}</span>
-                            <span className="flex-1" />
-                            {item.action && (
-                              <Button
-                                onPress={item.action.run}
-                                aria-label={item.action.label}
-                                className="flex aspect-square h-6 items-center justify-center rounded-xs text-sm text-(--color-font) opacity-80 ring-1 ring-transparent transition-all group-hover:opacity-100 group-focus:opacity-100 hover:bg-(--hl-xs) hover:opacity-100 focus:opacity-100 focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm) data-pressed:opacity-100"
-                              >
-                                <Icon icon={item.action.icon} />
-                              </Button>
-                            )}
-                          </div>
-                        </GridListItem>
-                      );
-                    }}
-                  </GridList>
                   {isGitProject(activeProject) && (
                     <GitProjectSyncDropdown
                       key={activeProjectGitRepository?._id}
@@ -841,7 +1976,12 @@ const Component = () => {
                     />
                   )}
                   {isLocalProject(activeProject) && !isGitProject(activeProject) && <LocalProjectBar />}
-                  {isRemoteProject(activeProject) && <CloudSyncProjectBar />}
+                  {isRemoteProject(activeProject) &&
+                    (activeWorkspace ? (
+                      <SyncDropdown key={activeWorkspace._id} workspace={activeWorkspace} project={activeProject} />
+                    ) : (
+                      <CloudSyncProjectBar />
+                    ))}
                 </>
               )}
               {!isLearningFeatureDismissed && learningFeature?.active && (
@@ -922,7 +2062,13 @@ const Component = () => {
                         {getProjectStorageTypeLabel(storageRules)}.
                       </p>
                       <Button
-                        onPress={() => setIsUpdateProjectModalOpen(true)}
+                        onPress={() => {
+                          if (activeProject) {
+                            setProjectSettingsTarget(
+                              projectsWithPresence.find(project => project._id === activeProject._id) || activeProject,
+                            );
+                          }
+                        }}
                         className="flex items-center justify-center rounded-xs border border-solid border-white px-2 py-1"
                       >
                         Update
@@ -1203,12 +2349,16 @@ const Component = () => {
             storageRules={storageRules}
           />
         )}
-        {isUpdateProjectModalOpen && (
+        {projectSettingsTarget && (
           <ProjectModal
-            isOpen={isUpdateProjectModalOpen}
-            onOpenChange={setIsUpdateProjectModalOpen}
-            project={activeProject}
-            gitRepository={activeProjectGitRepository || undefined}
+            isOpen={Boolean(projectSettingsTarget)}
+            onOpenChange={isOpen => {
+              if (!isOpen) {
+                setProjectSettingsTarget(null);
+              }
+            }}
+            project={projectSettingsTarget}
+            gitRepository={projectSettingsTarget.gitRepository}
             storageRules={storageRules}
           />
         )}
@@ -1234,6 +2384,78 @@ const Component = () => {
             from={{ type: importModalType }}
             organizationId={organizationId}
             defaultProjectId={activeProject._id}
+          />
+        )}
+        {collectionActionTarget && isCollectionImportModalOpen && (
+          <ImportModal
+            onHide={() => setIsCollectionImportModalOpen(false)}
+            from={{ type: 'file' }}
+            projectName={collectionActionTarget.project.name}
+            workspaceName={collectionActionTarget.workspace.name}
+            organizationId={organizationId}
+            defaultProjectId={collectionActionTarget.project._id}
+            defaultWorkspaceId={collectionActionTarget.workspace._id}
+          />
+        )}
+        {collectionActionTarget && isCollectionPasteCurlModalOpen && (
+          <PasteCurlModal
+            onImport={req => {
+              createCollectionRequest({
+                project: collectionActionTarget.project,
+                workspace: collectionActionTarget.workspace,
+                requestType: 'From Curl',
+                req,
+              });
+            }}
+            defaultValue=""
+            onHide={() => setIsCollectionPasteCurlModalOpen(false)}
+          />
+        )}
+        {folderPasteCurlTarget && isFolderPasteCurlModalOpen && (
+          <PasteCurlModal
+            onImport={req => {
+              createCollectionRequest({
+                project: folderPasteCurlTarget.project,
+                workspace: folderPasteCurlTarget.workspace,
+                requestType: 'From Curl',
+                parentId: folderPasteCurlTarget.parentId,
+                req,
+              });
+            }}
+            defaultValue=""
+            onHide={() => setIsFolderPasteCurlModalOpen(false)}
+          />
+        )}
+        {workspaceActionTarget && isWorkspaceImportModalOpen && (
+          <ImportModal
+            onHide={() => setIsWorkspaceImportModalOpen(false)}
+            from={{ type: 'file' }}
+            projectName={workspaceActionTarget.project.name}
+            workspaceName={workspaceActionTarget.workspace.name}
+            organizationId={organizationId}
+            defaultProjectId={workspaceActionTarget.project._id}
+            defaultWorkspaceId={workspaceActionTarget.workspace._id}
+          />
+        )}
+        {workspaceActionTarget && isWorkspaceExportModalOpen && (
+          <ExportRequestsModal
+            workspaceIdToExport={workspaceActionTarget.workspace._id}
+            onClose={() => setIsWorkspaceExportModalOpen(false)}
+          />
+        )}
+        {workspaceActionTarget && isWorkspaceDuplicateModalOpen && (
+          <WorkspaceDuplicateModal
+            onHide={() => setIsWorkspaceDuplicateModalOpen(false)}
+            workspace={workspaceActionTarget.workspace}
+          />
+        )}
+        {workspaceActionTarget && isWorkspaceSettingsModalOpen && (
+          <WorkspaceSettingsModal
+            workspace={workspaceActionTarget.workspace}
+            mockServer={workspaceActionTarget.file.mockServer}
+            gitFilePath={workspaceActionTarget.file.gitFilePath || undefined}
+            project={workspaceActionTarget.project}
+            onClose={() => setIsWorkspaceSettingsModalOpen(false)}
           />
         )}
       </Fragment>

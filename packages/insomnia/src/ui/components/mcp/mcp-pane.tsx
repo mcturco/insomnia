@@ -2,8 +2,6 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import cn from 'classnames';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Breadcrumb,
-  Breadcrumbs,
   Button,
   GridList,
   GridListItem,
@@ -14,10 +12,10 @@ import {
   TooltipTrigger,
 } from 'react-aria-components';
 import { type ImperativePanelGroupHandle, Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import { NavLink, useParams } from 'react-router';
+import { useParams } from 'react-router';
 import { useLocalStorage } from 'react-use';
 
-import { DEFAULT_SIDEBAR_SIZE } from '~/common/constants';
+import { DEFAULT_SIDEBAR_SIZE, MIN_WORKSPACE_SECONDARY_SIDEBAR_WIDTH } from '~/common/constants';
 import {
   getDefaultServerCapabilities,
   type McpServerData,
@@ -38,8 +36,6 @@ import {
 } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.debug.request.$requestId';
 import { SegmentEvent, trackOnceDaily } from '~/ui/analytics';
 import { McpActionsDropdown } from '~/ui/components/dropdowns/mcp-actions-dropdown';
-import { WorkspaceDropdown } from '~/ui/components/dropdowns/workspace-dropdown';
-import { WorkspaceSyncDropdown } from '~/ui/components/dropdowns/workspace-sync-dropdown';
 import { EnvironmentPicker } from '~/ui/components/environment-picker';
 import { ErrorBoundary } from '~/ui/components/error-boundary';
 import { Icon } from '~/ui/components/icon';
@@ -57,7 +53,7 @@ import { MCPCertificatesModal } from '~/ui/components/modals/mcp-certificates-mo
 import { WorkspaceEnvironmentsEditModal } from '~/ui/components/modals/workspace-environments-edit-modal';
 import { OrganizationTabList } from '~/ui/components/tabs/tab-list';
 import { RealtimeResponsePane } from '~/ui/components/websockets/realtime-response-pane';
-import { INSOMNIA_TAB_HEIGHT } from '~/ui/constant';
+import { WorkspacePaneHeader } from '~/ui/components/workspace/workspace-pane-header';
 import { useMcpReadyState } from '~/ui/hooks/use-mcp-ready-state';
 import { useRequestMetaPatcher, useRequestPatcher } from '~/ui/hooks/use-request';
 
@@ -67,9 +63,8 @@ const emptyServerData: McpServerData = {
 };
 
 export const McpPane = () => {
-  const { organizationId, projectId, workspaceId } = useParams() as {
+  const { organizationId, workspaceId } = useParams() as {
     organizationId: string;
-    projectId: string;
     workspaceId: string;
   };
   const { activeRequest, activeResponse, activeRequestMeta } = useRequestLoaderData()! as McpRequestLoaderData;
@@ -88,7 +83,7 @@ export const McpPane = () => {
   const [requestPaneActiveTab, setRequestPaneActiveTab] = useState<RequestPaneTabs>('params');
   const patchRequest = useRequestPatcher();
   const requestId = activeRequest._id;
-  const { activeEnvironment, caCertificate } = useWorkspaceLoaderData()!;
+  const { activeProject, activeWorkspace, activeEnvironment, caCertificate } = useWorkspaceLoaderData()!;
   const readyState = useMcpReadyState({ requestId });
   const parentRef = useRef<HTMLDivElement>(null);
   const [direction, setDirection] = useState<'horizontal' | 'vertical'>(
@@ -378,50 +373,34 @@ export const McpPane = () => {
         : 'default';
 
   return (
-    <PanelGroup
-      ref={sidebarPanelRef}
-      autoSaveId="insomnia-sidebar"
-      id="wrapper"
-      className="new-sidebar h-full w-full text-(--color-font)"
-      direction="horizontal"
-    >
-      <Panel id="sidebar" className="sidebar theme--sidebar" maxSize={40} minSize={10} collapsible>
-        <div className="flex flex-1 flex-col divide-y divide-solid divide-(--hl-md) overflow-hidden">
-          <div className="flex flex-col items-start divide-y divide-solid divide-(--hl-md)">
-            <div className={`flex w-full h-[${INSOMNIA_TAB_HEIGHT}px]`}>
-              <Breadcrumbs className="m-0 flex h-(--line-height-sm) w-full list-none items-center gap-2 px-(--padding-sm) font-bold">
-                <Breadcrumb className="flex h-full items-center gap-2 text-(--color-font) outline-hidden select-none data-focused:outline-hidden">
-                  <NavLink
-                    data-testid="project"
-                    className="flex aspect-square h-7 shrink-0 items-center justify-center gap-2 rounded-xs px-1 py-1 text-sm text-(--color-font) ring-1 ring-transparent outline-hidden transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm) data-focused:outline-hidden"
-                    to={`/organization/${organizationId}/project/${projectId}`}
-                  >
-                    <Icon className="text-xs" icon="chevron-left" />
-                  </NavLink>
-                  <span aria-hidden role="separator" className="h-4 text-(--hl-lg) outline-1 outline-solid" />
-                </Breadcrumb>
-                <Breadcrumb className="flex h-full items-center gap-2 truncate text-(--color-font) outline-hidden select-none data-focused:outline-hidden">
-                  <WorkspaceDropdown />
-                </Breadcrumb>
-              </Breadcrumbs>
-            </div>
-          </div>
-
-          <div className="flex flex-col items-start gap-2 p-(--padding-sm)">
-            <div className="flex items-center justify-between gap-2">
-              <EnvironmentPicker
-                isOpen={isEnvironmentPickerOpen}
-                onOpenChange={setIsEnvironmentPickerOpen}
-                onOpenEnvironmentSettingsModal={() => setEnvironmentModalOpen(true)}
-              />
-            </div>
+    <div className="flex h-full w-full flex-col">
+      <OrganizationTabList currentPage="mcp" />
+      <WorkspacePaneHeader
+        breadcrumbs={[
+          {
+            id: 'project',
+            label: activeProject.name,
+            to: `/organization/${organizationId}/project/${activeProject._id}`,
+          },
+          {
+            id: 'workspace',
+            label: activeWorkspace.name,
+          },
+        ]}
+        rightSlot={
+          <>
+            <EnvironmentPicker
+              isOpen={isEnvironmentPickerOpen}
+              onOpenChange={setIsEnvironmentPickerOpen}
+              onOpenEnvironmentSettingsModal={() => setEnvironmentModalOpen(true)}
+            />
             <Button
               onPress={() => setCertificatesModalOpen(true)}
-              className="flex max-w-full flex-1 items-center justify-center gap-2 truncate rounded-sm px-4 py-1 text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
+              className="flex h-7 items-center justify-center gap-2 rounded-xs px-2 text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
             >
-              <Icon icon="file-contract" className="w-5 shrink-0" />
+              <Icon icon="file-contract" className="w-4 shrink-0" />
               <span className="inline-flex items-center gap-2 truncate">
-                Manage Certificates
+                Certificates
                 {caStatus !== 'default' && (
                   <Icon
                     icon="circle"
@@ -435,8 +414,26 @@ export const McpPane = () => {
                 )}
               </span>
             </Button>
-          </div>
-
+          </>
+        }
+      />
+      <PanelGroup
+      ref={sidebarPanelRef}
+      autoSaveId="insomnia-sidebar-secondary"
+      id="wrapper"
+      className="new-sidebar h-full w-full text-(--color-font)"
+      direction="horizontal"
+    >
+      <Panel
+        id="sidebar"
+        className="sidebar theme--sidebar"
+        defaultSize={DEFAULT_SIDEBAR_SIZE}
+        maxSize={40}
+        minSize={10}
+        style={{ minWidth: MIN_WORKSPACE_SECONDARY_SIDEBAR_WIDTH }}
+        collapsible
+      >
+        <div className="flex flex-1 flex-col divide-y divide-solid divide-(--hl-md) overflow-hidden">
           <div className="flex flex-1 flex-col overflow-hidden">
             <div className="flex justify-between gap-1 p-(--padding-sm)">
               <SearchField
@@ -545,15 +542,12 @@ export const McpPane = () => {
               </GridList>
             </div>
           </div>
-          <WorkspaceSyncDropdown />
-
           {isEnvironmentModalOpen && <WorkspaceEnvironmentsEditModal onClose={() => setEnvironmentModalOpen(false)} />}
           {isCertificatesModalOpen && <MCPCertificatesModal onClose={() => setCertificatesModalOpen(false)} />}
         </div>
       </Panel>
       <PanelResizeHandle className="h-full w-px bg-(--hl-md)" />
       <Panel className="flex flex-col">
-        <OrganizationTabList currentPage="mcp" />
         <PanelGroup autoSaveId="insomnia-panels" id="insomnia-panels" direction={direction}>
           <Panel id="mcp-request-pane" order={1} minSize={10} className="pane-one theme--pane">
             <McpRequestPane
@@ -577,6 +571,7 @@ export const McpPane = () => {
         </PanelGroup>
       </Panel>
     </PanelGroup>
+    </div>
   );
 };
 

@@ -1,8 +1,6 @@
 import type { IconName } from '@fortawesome/fontawesome-svg-core';
 import React, { Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  Breadcrumb,
-  Breadcrumbs,
   Button,
   GridList,
   GridListItem,
@@ -14,7 +12,6 @@ import {
 import { type ImperativePanelGroupHandle, Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import {
   href,
-  NavLink,
   redirect,
   Route as RouteComponent,
   Routes,
@@ -23,14 +20,12 @@ import {
   useRouteLoaderData,
 } from 'react-router';
 
-import { DEFAULT_SIDEBAR_SIZE } from '~/common/constants';
+import { DEFAULT_SIDEBAR_SIZE, MIN_WORKSPACE_SECONDARY_SIDEBAR_WIDTH } from '~/common/constants';
 import * as models from '~/models';
 import type { MockRoute } from '~/models/mock-route';
 import { useRootLoaderData } from '~/root';
 import { useWorkspaceLoaderData } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId';
 import { useMockRouteDeleteActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.mock-server.mock-route.$mockRouteId.delete';
-import { WorkspaceDropdown } from '~/ui/components/dropdowns/workspace-dropdown';
-import { WorkspaceSyncDropdown } from '~/ui/components/dropdowns/workspace-sync-dropdown';
 import { Icon } from '~/ui/components/icon';
 import { useDocBodyKeyboardShortcuts } from '~/ui/components/keydown-binder';
 import { showModal } from '~/ui/components/modals';
@@ -41,7 +36,7 @@ import { SvgIcon } from '~/ui/components/svg-icon';
 import { OrganizationTabList } from '~/ui/components/tabs/tab-list';
 import { formatMethodName } from '~/ui/components/tags/method-tag';
 import { showResourceNotFoundToast } from '~/ui/components/toast-notification';
-import { INSOMNIA_TAB_HEIGHT } from '~/ui/constant';
+import { WorkspacePaneHeader } from '~/ui/components/workspace/workspace-pane-header';
 import { useTabNavigate } from '~/ui/hooks/use-insomnia-tab';
 import { isPrimaryClickModifier } from '~/ui/utils';
 
@@ -239,39 +234,38 @@ const Component = () => {
   }, [mockRouteId]);
 
   return (
-    <PanelGroup
-      ref={sidebarPanelRef}
-      autoSaveId="insomnia-sidebar"
-      id="wrapper"
-      className="new-sidebar h-full w-full text-(--color-font)"
-      direction="horizontal"
-    >
+    <div className="flex h-full w-full flex-col">
+      <OrganizationTabList />
+      <WorkspacePaneHeader
+        breadcrumbs={[
+          {
+            id: 'project',
+            label: activeProject.name,
+            to: `/organization/${organizationId}/project/${projectId}`,
+          },
+          {
+            id: 'workspace',
+            label: activeWorkspace.name,
+          },
+        ]}
+      />
+      <PanelGroup
+        ref={sidebarPanelRef}
+        autoSaveId="insomnia-sidebar-secondary"
+        id="wrapper"
+        className="new-sidebar h-full w-full text-(--color-font)"
+        direction="horizontal"
+      >
       <Panel
         id="sidebar"
         className="sidebar theme--sidebar"
         defaultSize={DEFAULT_SIDEBAR_SIZE}
         maxSize={40}
         minSize={10}
+        style={{ minWidth: MIN_WORKSPACE_SECONDARY_SIDEBAR_WIDTH }}
         collapsible
       >
         <div className="flex flex-1 flex-col divide-y divide-solid divide-(--hl-md) overflow-hidden">
-          <div className={`flex items-center gap-2 h-[${INSOMNIA_TAB_HEIGHT}px] px-(--padding-sm)`}>
-            <Breadcrumbs className="m-0 flex w-full list-none items-center gap-2 p-0 font-bold">
-              <Breadcrumb className="flex h-full items-center gap-2 text-(--color-font) outline-hidden select-none data-focused:outline-hidden">
-                <NavLink
-                  data-testid="project"
-                  className="flex aspect-square h-7 shrink-0 items-center justify-center gap-2 rounded-xs px-1 py-1 text-sm text-(--color-font) ring-1 ring-transparent outline-hidden transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm) data-focused:outline-hidden"
-                  to={`/organization/${organizationId}/project/${projectId}`}
-                >
-                  <Icon className="text-xs" icon="chevron-left" />
-                </NavLink>
-                <span aria-hidden role="separator" className="h-4 text-(--hl-lg) outline-1 outline-solid" />
-              </Breadcrumb>
-              <Breadcrumb className="flex h-full items-center gap-2 truncate text-(--color-font) outline-hidden select-none data-focused:outline-hidden">
-                <WorkspaceDropdown />
-              </Breadcrumb>
-            </Breadcrumbs>
-          </div>
           <div className="p-(--padding-sm)">
             <Button
               className="flex items-center justify-center gap-2 rounded-xs px-4 py-1 text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
@@ -375,12 +369,10 @@ const Component = () => {
             }}
           </GridList>
 
-          <WorkspaceSyncDropdown />
         </div>
       </Panel>
       <PanelResizeHandle className="h-full w-px bg-(--hl-md)" />
       <Panel className="flex flex-col">
-        <OrganizationTabList />
         <PanelGroup autoSaveId="insomnia-panels" direction={direction}>
           <Panel id="pane-one" minSize={10} className="pane-one theme--pane">
             <Routes>
@@ -446,6 +438,7 @@ const Component = () => {
         />
       )}
     </PanelGroup>
+    </div>
   );
 };
 
