@@ -17,6 +17,7 @@ export interface ThemeBlock {
     danger?: ThemeColor;
     surprise?: ThemeColor;
     info?: ThemeColor;
+    cta?: ThemeColor;
   };
   foreground?: {
     default: ThemeColor;
@@ -26,6 +27,7 @@ export interface ThemeBlock {
     danger?: ThemeColor;
     surprise?: ThemeColor;
     info?: ThemeColor;
+    constant?: ThemeColor;
   };
   highlight?: {
     default: ThemeColor;
@@ -35,6 +37,7 @@ export interface ThemeBlock {
     md?: ThemeColor;
     lg?: ThemeColor;
     xl?: ThemeColor;
+    cta?: ThemeColor;
   };
 }
 

@@ -15,7 +15,7 @@ export function getStateClasses() {
 
 export function getTextColorClasses(color: ButtonColor) {
   return {
-    primary: 'text-(--color-font-surprise)',
+    primary: 'text-(--color-font-constant)',
     danger: 'text-(--color-font-danger)',
     default: 'text-(--color-font)',
   }[color];
@@ -31,7 +31,7 @@ export function getBorderColorClasses(color: ButtonColor) {
 
 export function getBackgroundColorClasses(color: ButtonColor) {
   return {
-    primary: 'bg-(--color-surprise) data-disabled:bg-(--color-surprise)/50 data-hovered:bg-(--color-surprise)/80',
+    primary: 'bg-(--color-cta) data-disabled:bg-(--color-cta)/50 data-hovered:bg-(--hl-cta)',
     danger: 'bg-(--color-danger) data-disabled:bg-(--color-danger)/50 data-hovered:bg-(--color-danger)/80',
     default: 'bg-transparent',
   }[color];

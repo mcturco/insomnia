@@ -169,6 +169,7 @@ function getThemeBlockCSS(block?: ThemeBlock) {
     addColorVar('color-danger', background.danger);
     addColorVar('color-surprise', background.surprise);
     addColorVar('color-info', background.info);
+    addColorVar('color-cta', background.cta);
     addNewLine();
   }
 
@@ -182,6 +183,7 @@ function getThemeBlockCSS(block?: ThemeBlock) {
     addColorVar('color-font-danger', foreground.danger);
     addColorVar('color-font-surprise', foreground.surprise);
     addColorVar('color-font-info', foreground.info);
+    addColorVar('color-font-constant', foreground.constant);
     addNewLine();
   }
 
@@ -195,6 +197,7 @@ function getThemeBlockCSS(block?: ThemeBlock) {
     addColorVar('hl-md', highlight.md);
     addColorVar('hl-lg', highlight.lg);
     addColorVar('hl-xl', highlight.xl);
+    addColorVar('hl-cta', highlight.cta);
     addNewLine();
   }
 
@@ -302,6 +305,7 @@ export const baseTheme: CompleteStyleBlock = {
     danger: '#e15251',
     surprise: '#6030BF',
     info: '#20aed9',
+    cta: '#3D08B9',
   },
   foreground: {
     default: '#666',
@@ -311,6 +315,7 @@ export const baseTheme: CompleteStyleBlock = {
     danger: '#fff',
     surprise: '#fff',
     info: '#fff',
+    constant: '#fff',
   },
   highlight: {
     default: 'rgba(130, 130, 130, 1)',
@@ -320,5 +325,6 @@ export const baseTheme: CompleteStyleBlock = {
     md: 'rgba(130, 130, 130, 0.35)',
     lg: 'rgba(130, 130, 130, 0.5)',
     xl: 'rgba(130, 130, 130, 0.8)',
+    cta: '#5E2ED8',
   },
 };

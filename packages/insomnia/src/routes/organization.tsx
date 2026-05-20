@@ -182,7 +182,7 @@ const LoginUserActions = ({
         organizationId={organizationId}
         className={
           !isMinimal
-            ? 'border border-solid border-(--hl-md) bg-(--color-surprise) font-semibold text-(--color-font-surprise)'
+            ? 'border border-solid border-(--hl-md) bg-(--color-cta) font-semibold text-(--color-font-constant) data-hovered:bg-(--hl-cta)'
             : 'text-(--color-font)'
         }
       />
