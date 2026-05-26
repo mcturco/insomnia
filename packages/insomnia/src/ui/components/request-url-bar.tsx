@@ -321,7 +321,7 @@ export const RequestUrlBar = forwardRef<RequestUrlBarHandle, Props>(
             {isCancellable ? (
               <button
                 type="button"
-                className="rounded-xs bg-(--color-surprise) px-(--padding-md) text-(--color-font-surprise)"
+                className="rounded-xs bg-(--color-cta) px-(--padding-md) text-(--color-constant)"
                 onClick={() => {
                   if (isEventStreamRequest(activeRequest)) {
                     window.main.curl.close({ requestId: activeRequest._id });
@@ -340,7 +340,7 @@ export const RequestUrlBar = forwardRef<RequestUrlBarHandle, Props>(
               <>
                 <button
                   onClick={() => sendOrConnect()}
-                  className={`bg-(--color-surprise) px-(--padding-md) text-(--color-font-surprise) ${borderRadius}`}
+                  className={`bg-(--color-cta) px-(--padding-md) text-(--color-constant) ${borderRadius}`}
                   type="button"
                 >
                   {buttonText}
@@ -354,7 +354,7 @@ export const RequestUrlBar = forwardRef<RequestUrlBarHandle, Props>(
                     closeOnSelect={false}
                     triggerButton={
                       <Button
-                        className="rounded-r-sm bg-(--color-surprise) px-1 text-(--color-font-surprise)"
+                        className="rounded-r-sm bg-(--color-cta) px-1 text-(--color-constant)"
                         style={{
                           borderTopRightRadius: '0.125rem',
                           borderBottomRightRadius: '0.125rem',

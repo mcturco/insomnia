@@ -15,6 +15,7 @@ export interface ThemeBlock {
     notice?: ThemeColor;
     warning?: ThemeColor;
     danger?: ThemeColor;
+    fix?: ThemeColor;
     surprise?: ThemeColor;
     info?: ThemeColor;
     cta?: ThemeColor;
@@ -25,6 +26,7 @@ export interface ThemeBlock {
     notice?: ThemeColor;
     warning?: ThemeColor;
     danger?: ThemeColor;
+    fix?: ThemeColor;
     surprise?: ThemeColor;
     info?: ThemeColor;
     constant?: ThemeColor;

@@ -28,7 +28,7 @@ export const scopeToIconMap: Record<ProjectScopeKeys, IconProp> = {
 
 export const scopeToBgColorMap: Record<ProjectScopeKeys, string> = {
   'design': 'bg-(--color-info)',
-  'collection': 'bg-(--color-surprise)',
+  'collection': 'bg-(--color-fix)',
   'mock-server': 'bg-(--color-warning)',
   'unsynced': 'bg-(--hl-md)',
   'environment': 'bg-(--color-font)',
@@ -37,7 +37,7 @@ export const scopeToBgColorMap: Record<ProjectScopeKeys, string> = {
 
 export const scopeToTextColorMap: Record<ProjectScopeKeys, string> = {
   'design': 'text-(--color-font-info)',
-  'collection': 'text-(--color-font-surprise)',
+  'collection': 'text-(--color-font-fix)',
   'mock-server': 'text-(--color-font-warning)',
   'unsynced': 'text-(--color-font)',
   'environment': 'text-(--color-bg)',

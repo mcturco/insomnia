@@ -4,6 +4,19 @@ import React, { type FC, memo } from 'react';
 
 import { CONTENT_TYPE_GRAPHQL, METHOD_DELETE, METHOD_OPTIONS } from '../../../common/constants';
 
+const METHOD_COLORS: Record<string, string> = {
+  GET: 'text-(--color-font-fix)',
+  GQL: 'text-(--color-font-fix)',
+  POST: 'text-(--color-font-success)',
+  PATCH: 'text-(--color-font-notice)',
+  PUT: 'text-(--color-font-warning)',
+  DELETE: 'text-(--color-font-danger)',
+  DEL: 'text-(--color-font-danger)',
+  OPTIONS: 'text-(--color-font-info)',
+  OPT: 'text-(--color-font-info)',
+  HEAD: 'text-(--color-font-info)',
+};
+
 const { isEventStreamRequest, isRequest } = models.request;
 
 interface Props {
@@ -17,17 +30,17 @@ function removeVowels(str: string) {
 }
 
 const requestBadgeClassNames: Record<string, string> = {
-  GET: 'bg-[rgba(var(--color-surprise-rgb),0.5)] text-(--color-font-surprise)',
-  POST: 'bg-[rgba(var(--color-success-rgb),0.5)] text-(--color-font-success)',
-  HEAD: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-  OPTIONS: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-  DELETE: 'bg-[rgba(var(--color-danger-rgb),0.5)] text-(--color-font-danger)',
-  PUT: 'bg-[rgba(var(--color-warning-rgb),0.5)] text-(--color-font-warning)',
-  PATCH: 'bg-[rgba(var(--color-notice-rgb),0.5)] text-(--color-font-notice)',
-  WS: 'bg-[rgba(var(--color-notice-rgb),0.5)] text-(--color-font-notice)',
-  IO: 'bg-[rgba(var(--color-notice-rgb),0.5)] text-(--color-font-notice)',
-  gRPC: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-  MCP: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
+  GET: 'bg-(--color-fix) text-(--color-font-fix)',
+  POST: 'bg-(--color-success) text-(--color-font-success)',
+  HEAD: 'bg-(--color-info) text-(--color-font-info)',
+  OPTIONS: 'bg-(--color-info) text-(--color-font-info)',
+  DELETE: 'bg-(--color-danger) text-(--color-font-danger)',
+  PUT: 'bg-(--color-warning) text-(--color-font-warning)',
+  PATCH: 'bg-(--color-notice) text-(--color-font-notice)',
+  WS: 'bg-(--color-notice) text-(--color-font-notice)',
+  IO: 'bg-(--color-notice) text-(--color-font-notice)',
+  gRPC: 'bg-(--color-info) text-(--color-font-info)',
+  MCP: 'bg-(--color-info) text-(--color-font-info)',
 };
 
 export const getRequestBadgeClassName = (badge: string) => {
@@ -94,6 +107,9 @@ export const MethodTag: FC<Props> = memo(({ method, override, fullNames }) => {
     overrideName = override ? formatMethodName(override) : override;
   }
 
+  const activeMethod = overrideName ? override : method;
+  const colorClass = METHOD_COLORS[activeMethod ?? ''] ?? 'text-(--color-font)';
+
   return (
     <div
       style={{
@@ -101,11 +117,11 @@ export const MethodTag: FC<Props> = memo(({ method, override, fullNames }) => {
       }}
     >
       {overrideName && (
-        <div className={'tag tag--no-bg tag--superscript http-method-' + method}>
+        <div className={'tag tag--no-bg tag--superscript ' + (METHOD_COLORS[method] ?? 'text-(--color-font)')}>
           <span>{methodName}</span>
         </div>
       )}
-      <div className={'tag tag--no-bg tag--small http-method-' + (overrideName ? override : method)}>
+      <div className={'tag tag--no-bg tag--small ' + colorClass}>
         <span className="tag__inner">{overrideName || methodName}</span>
       </div>
     </div>

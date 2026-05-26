@@ -167,6 +167,7 @@ function getThemeBlockCSS(block?: ThemeBlock) {
     addColorVar('color-notice', background.notice);
     addColorVar('color-warning', background.warning);
     addColorVar('color-danger', background.danger);
+    addColorVar('color-fix', background.fix);
     addColorVar('color-surprise', background.surprise);
     addColorVar('color-info', background.info);
     addColorVar('color-cta', background.cta);
@@ -181,6 +182,7 @@ function getThemeBlockCSS(block?: ThemeBlock) {
     addColorVar('color-font-notice', foreground.notice);
     addColorVar('color-font-warning', foreground.warning);
     addColorVar('color-font-danger', foreground.danger);
+    addColorVar('color-font-fix', foreground.fix);
     addColorVar('color-font-surprise', foreground.surprise);
     addColorVar('color-font-info', foreground.info);
     addColorVar('color-font-constant', foreground.constant);
@@ -303,9 +305,10 @@ export const baseTheme: CompleteStyleBlock = {
     notice: '#d8c84d',
     warning: '#ec8702',
     danger: '#e15251',
+    fix: '#351A42',
     surprise: '#6030BF',
     info: '#20aed9',
-    cta: '#3D08B9',
+    cta: '#642BF5',
   },
   foreground: {
     default: '#666',
@@ -313,6 +316,7 @@ export const baseTheme: CompleteStyleBlock = {
     notice: '#fff',
     warning: '#fff',
     danger: '#fff',
+    fix: '#fff',
     surprise: '#fff',
     info: '#fff',
     constant: '#fff',

@@ -1140,32 +1140,32 @@ button {
 }
 .success,
 .http-method-POST {
-  color: var(--color-success) !important;
+  color: var(--color-success);
 }
 .notice,
 .http-method-PATCH {
-  color: var(--color-notice) !important;
+  color: var(--color-notice);
 }
 .method-grpc {
-  color: #2fa3a3 !important;
+  color: #2fa3a3;
 }
 .warning,
 .http-method-PUT {
-  color: var(--color-warning) !important;
+  color: var(--color-warning);
 }
 .danger,
 .http-method-DELETE {
-  color: var(--color-danger) !important;
+  color: var(--color-danger);
 }
 .info,
 .http-method-OPTIONS,
 .http-method-HEAD {
-  color: var(--color-info) !important;
+  color: var(--color-info);
 }
 .surprise,
 .http-method-GQL,
 .http-method-GET {
-  color: var(--color-surprise-font) !important;
+  color: var(--color-surprise-font);
 }
 .boring {
   color: var(--color-font) !important;
