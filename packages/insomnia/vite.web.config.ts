@@ -1,0 +1,146 @@
+// Vite config for the web research prototype.
+// Forks vite.config.ts but:
+//   - Replaces the Electron-specific entry (entry.client.tsx → entry.web.tsx)
+//   - Stubs out Node.js / Electron modules that the browser can't load
+//   - Outputs to dist-web/ so the regular Electron build is unaffected
+//   - Skips the electronNodeRequire plugin
+
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { reactRouter } from '@react-router/dev/vite';
+import tailwindcss from '@tailwindcss/vite';
+import { defineConfig } from 'vite';
+
+const webEntryPath = path.resolve(__dirname, './src/entry.web.tsx');
+const electronEntryPath = path.resolve(__dirname, './src/entry.client.tsx');
+
+// Packages that are genuinely impossible to bundle for the browser.
+// NOTE: only list packages that use Node.js built-ins (fs, path, os, crypto…)
+// and have no browser build. Don't list packages here just because they were
+// in Electron's externalDependencies — those were external only because
+// Electron's require() handled them at runtime. In the browser, Vite can
+// bundle browser-compatible packages (tough-cookie, mocha, swagger-parser)
+// directly instead.
+const STUB_MODULES = [
+  // NeDB uses Node.js fs, path, os — stub so tree-shaking can drop createNedbDatabase
+  '@seald-io/nedb',
+  // Electron — should never appear in renderer code but just in case
+  'electron',
+  // Native curl binding — definitely Node.js native addon
+  '@getinsomnia/node-libcurl',
+  // jshint — has its own named-export stub below (src/web-shim/stubs/jshint.ts)
+];
+
+export default defineConfig(({ mode }) => {
+  const __DEV__ = mode !== 'production';
+
+  return {
+    define: {
+      '__DEV__': JSON.stringify(__DEV__),
+      'process.env.NODE_ENV': JSON.stringify(mode),
+      'process.env.INSOMNIA_ENV': JSON.stringify('web'),
+      // Node.js packages reference `global`; browsers only have `globalThis`.
+      'global': 'globalThis',
+      // Override so Electron-conditional branches (process.type === 'renderer')
+      // still behave, while 'web' lets us add our own guards later.
+      ...(!__DEV__ ? { 'process.type': JSON.stringify('renderer') } : {}),
+    },
+
+    // Isolated cache so the web build's optimized dep hashes never collide
+    // with the Electron build's cache in node_modules/.vite
+    cacheDir: 'node_modules/.vite-web',
+
+    server: {
+      port: 3335, // different port to avoid clashing with the Electron dev server
+    },
+
+    build: {
+      outDir: 'dist-web',
+      target: 'esnext',
+      sourcemap: true,
+      rollupOptions: {
+        // Nothing is truly external for the browser build — we want everything bundled.
+      },
+    },
+
+    optimizeDeps: {
+      // Only exclude the truly un-bundleable packages (the stub targets).
+      // tough-cookie, mocha, swagger-parser are browser-compatible and should
+      // be pre-bundled normally.
+      exclude: [...STUB_MODULES],
+      // Do NOT use force:true — it regenerates dep hashes on every server start,
+      // which causes the browser to always get 504 "Outdated Optimize Dep" responses.
+      include: ['codemirror-graphql/utils/SchemaReference', '@stoplight/spectral-core', 'isomorphic-git'],
+    },
+
+    resolve: {
+      alias: {
+        // ── Adapter overrides (must come before the '~' catch-all) ──────────
+        '~/network/network-adapter': path.resolve(__dirname, './src/network/network-adapter.renderer'),
+        '~/templating/render-adapter': path.resolve(__dirname, './src/templating/render-adapter.renderer'),
+        '~': path.resolve(__dirname, './src'),
+
+        // ── Stub Node.js / Electron packages ────────────────────────────────
+        // Generic empty stub for packages that are never called in browser paths.
+        ...Object.fromEntries(
+          STUB_MODULES.map(mod => [mod, path.resolve(__dirname, './src/web-shim/module-stub.ts')]),
+        ),
+
+        // ── Node.js built-in polyfills ────────────────────────────────────────
+        // Vite externalizes Node.js built-ins by default (making them empty stubs
+        // that throw on any property access). Alias them to browser polyfills so
+        // transitive deps (mocha, jshint, tough-cookie…) don't crash at import time.
+        'node:util': path.resolve(__dirname, './src/web-shim/polyfills/node-util.ts'),
+        'util': path.resolve(__dirname, './src/web-shim/polyfills/node-util.ts'),
+
+        // ── Package-specific stubs (named exports required) ──────────────────
+        // Use dedicated stubs when the consumer does named imports that the
+        // generic empty-default stub can't satisfy.
+        'jshint': path.resolve(__dirname, './src/web-shim/stubs/jshint.ts'),
+        // insomnia-testing pulls in mocha → node:util → crash. Stub the whole
+        // package; test-suite routes will fail gracefully at runtime only.
+        'insomnia-testing': path.resolve(__dirname, './src/web-shim/stubs/insomnia-testing.ts'),
+
+        // ── insomnia-data/node: skip the NeDB export, use only services ─────
+        // The default export of insomnia-data/node also re-exports createNedbDatabase
+        // which pulls in @seald-io/nedb.  Point this path directly at the
+        // services barrel so tree-shaking doesn't have to deal with it.
+        // __dirname = packages/insomnia/, so ../insomnia-data = packages/insomnia-data/
+        'insomnia-data/node': path.resolve(
+          __dirname,
+          '../insomnia-data/node-src/services/index.ts',
+        ),
+
+        // ── path shim (carry over from main config) ──────────────────────────
+        'path': path.resolve(__dirname, './src/path-shim.ts'),
+      },
+    },
+
+    plugins: [
+      // Redirect entry.client.tsx → entry.web.tsx before react-router sees it.
+      // resolveId() is the correct Vite hook for this: it fires during resolution
+      // (before load) and returning a new path makes Vite treat the web entry as
+      // the real module, so relative imports inside it resolve from its own location.
+      {
+        name: 'web-entry-override',
+        enforce: 'pre',
+        resolveId(id: string): string | null {
+          // Match both the bare specifier and the fully-resolved absolute path
+          if (id === electronEntryPath || id.endsWith('/entry.client.tsx') || id.endsWith('/entry.client')) {
+            return webEntryPath;
+          }
+          return null;
+        },
+      },
+
+      reactRouter(),
+
+      tailwindcss(),
+    ],
+
+    worker: {
+      format: 'es',
+    },
+  };
+});
