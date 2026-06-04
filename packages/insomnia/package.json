@@ -37,6 +37,8 @@
     "start:electron:autoRestart": "cross-env NODE_ENV=development esr esbuild.entrypoints.ts --autoRestart",
     "build:web": "vite build -c vite.web.config.ts",
     "dev:web": "vite dev -c vite.web.config.ts",
+    "deploy:web": "bash scripts/deploy-web.sh",
+    "deploy:web:prod": "bash scripts/deploy-web.sh --prod",
     "test": "vitest run",
     "type-check": "react-router typegen && tsc --project tsconfig.json",
     "type-check:watch": "npm run type-check -- --watch",
