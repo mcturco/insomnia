@@ -18,6 +18,8 @@ import { initElectronStorage } from '~/main/electron-storage';
 import { runGitCredentialsMigration } from '~/main/git/migrations';
 import { registerPathHandlers } from '~/main/ipc/path';
 import { registerLLMConfigServiceAPI } from '~/main/llm-config-service';
+import { initRuntime } from '~/runtimes';
+import { nodeRuntime } from '~/runtimes/runtime.node';
 
 import { userDataFolder } from '../config/config.json';
 import { getAppVersion, getProductName, isDevelopment } from './common/constants';
@@ -26,6 +28,7 @@ import { registerInsomniaProtocols } from './main/api.protocol';
 import { backupIfNewerVersionAvailable } from './main/backup';
 import { registerSyncHandlers } from './main/cloud-sync/ipc';
 import { registerGitServiceAPI } from './main/git-service';
+import { registerCookieHandlers } from './main/ipc/cookies';
 import { ipcMainOn, ipcMainOnce, registerElectronHandlers } from './main/ipc/electron';
 import { registerElectronStorageHandlers } from './main/ipc/electron-storage';
 import { registergRPCHandlers } from './main/ipc/grpc';
@@ -89,6 +92,7 @@ app.on('ready', async () => {
   registerMainHandlers();
   registerPathHandlers();
   registergRPCHandlers();
+  registerCookieHandlers();
   registerGitServiceAPI();
   registerLLMConfigServiceAPI();
   registerWebSocketHandlers();
@@ -125,6 +129,7 @@ app.on('ready', async () => {
   await initDatabase(mainDatabase);
   // Initialize services for main process
   initServices(servicesNodeImpl);
+  initRuntime(nodeRuntime);
   await _createModelInstances();
   // backup needs the channel from settings which needs the database
   await backupIfNewerVersionAvailable();

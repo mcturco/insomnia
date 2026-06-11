@@ -33,9 +33,13 @@ const shouldAutoCreateInitialProject = async ({
     return false;
   }
 
-  const organization = await services.organization.get(organizationId);
-
-  if (!organization || !models.organization.isPersonalOrganization(organization)) {
+  try {
+    const organization = await services.organization.get(organizationId);
+    if (!organization || !models.organization.isPersonalOrganization(organization)) {
+      return false;
+    }
+  } catch (error) {
+    console.log('[organizations] Failed to load Organizations', error);
     return false;
   }
 
@@ -83,7 +87,7 @@ export async function clientLoader({ params }: LoaderFunctionArgs) {
         parentId: project._id,
       });
 
-      return redirect(`/organization/${organizationId}/project/${project._id}`);
+      return redirect(`/organization/${organizationId}/project/${project._id}?isExpanded=true`);
     } catch (error) {
       console.warn('[project] Failed to auto-create initial local project', error);
     }

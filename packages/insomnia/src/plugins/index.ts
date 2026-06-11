@@ -2,116 +2,48 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import electron from 'electron';
-import type { GrpcRequest, Request, RequestGroup, SocketIORequest, WebSocketRequest, Workspace } from 'insomnia-data';
+import type { Request, RequestGroup, Workspace } from 'insomnia-data';
 import { database as db, models, services } from 'insomnia-data';
 import type { PluginConfigMap } from 'insomnia-data/common';
 
 import { fetchFromTemplateWorkerDatabase } from '~/templating/liquid-extension-worker';
 
-import type { ParsedApiSpec } from '../common/api-specs';
 import { getAppBundlePlugins, isDevelopment } from '../common/constants';
 import * as pluginApp from '../plugins/context/app';
 import * as pluginNetwork from '../plugins/context/network';
 import * as pluginStore from '../plugins/context/store';
-import type { PluginTemplateTag, RenderPurpose } from '../templating/types';
-import type { PluginTheme } from './misc';
+import type { RenderPurpose } from '../templating/types';
 import themes from './themes';
-
-export interface Plugin {
-  name: string;
-  description: string;
-  version: string;
-  directory: string;
-  config: { disabled: boolean };
-  module: {
-    templateTags?: PluginTemplateTag[];
-    requestHooks?: ((requestContext: any) => void)[];
-    responseHooks?: ((responseContext: any) => void)[];
-    themes?: PluginTheme[];
-    requestGroupActions?: OmitInternal<RequestGroupAction>[];
-    requestActions?: OmitInternal<RequestAction>[];
-    workspaceActions?: OmitInternal<WorkspaceAction>[];
-    documentActions?: OmitInternal<DocumentAction>[];
-    // Plugin actions which will be executed in main process(node integration) context. For internal use only, not for public plugins
-    unsafePluginMainActions?: OmitInternal<PluginAction>[];
-  };
-}
-
-type OmitInternal<T> = Omit<T, keyof { plugin: Plugin }>;
-export type TemplateTag = { plugin: Plugin } & {
-  templateTag: PluginTemplateTag;
-};
-
-export type RequestGroupAction = { plugin: Plugin } & {
-  action: (
-    context: Record<string, any>,
-    models: {
-      requestGroup: RequestGroup;
-      requests: (Request | GrpcRequest | WebSocketRequest)[];
-    },
-  ) => void | Promise<void>;
-  label: string;
-  icon?: string;
-};
-
-export type RequestAction = { plugin: Plugin } & {
-  action: (
-    context: Record<string, any>,
-    models: {
-      requestGroup?: RequestGroup;
-      request: Request | GrpcRequest | WebSocketRequest | SocketIORequest;
-    },
-  ) => void | Promise<void>;
-  label: string;
-  icon?: string;
-};
-
-export type WorkspaceAction = { plugin: Plugin } & {
-  action: (
-    context: Record<string, any>,
-    models: {
-      workspace: Workspace;
-      requestGroups: RequestGroup[];
-      requests: Request[];
-    },
-  ) => void | Promise<void>;
-  label: string;
-  icon?: string;
-};
-
-export type DocumentAction = { plugin: Plugin } & {
-  action: (context: Record<string, any>, documents: ParsedApiSpec) => void | Promise<void>;
-  label: string;
-  hideAfterClick?: boolean;
-};
-
-export type PluginAction = { plugin: Plugin } & {
-  name: string;
-  description?: string;
-  action: (context: Record<string, any>, params?: any) => Promise<any>;
-};
-
-type RequestHookCallback = (context: any) => void;
-
-export type RequestHook = { plugin: Plugin } & {
-  hook: RequestHookCallback;
-};
-
-type ResponseHookCallback = (context: any) => void;
-export type ResponseHook = { plugin: Plugin } & {
-  hook: ResponseHookCallback;
-};
-
-export type Theme = { plugin: Plugin } & {
-  theme: PluginTheme;
-};
-
-export type ColorScheme = 'default' | 'light' | 'dark';
+import type {
+  DocumentAction,
+  Plugin,
+  RequestAction,
+  RequestGroupAction,
+  RequestHook,
+  ResponseHook,
+  TemplateTag,
+  Theme,
+  WorkspaceAction,
+} from './types';
 
 let plugins: Plugin[] | null | undefined = null;
 
 export function _testOnlySetPlugins(p: Plugin[] | null) {
   plugins = p;
+}
+
+// The native `require` is in scope inside the bundled CommonJS that runs in the Electron plugin
+// window and main process; the inso CLI exposes it via `global.require`, so we use it when present
+// to ensure plugin modules load in all three runtimes.
+function getNodeRequire(): NodeRequire {
+  const globalRequire = (global as typeof global & { require?: unknown }).require;
+  if (typeof globalRequire === 'function') {
+    return globalRequire as NodeRequire;
+  }
+  if (typeof require === 'function') {
+    return require;
+  }
+  throw new Error('No require function available to load plugin modules');
 }
 
 export async function init() {
@@ -157,15 +89,17 @@ async function traversePluginPath(pluginMap: Record<string, Plugin>, allPaths: s
           continue;
         }
 
+        const nodeRequire = getNodeRequire();
+
         // Now delete the require cache for this module, ensuring we're deleting only the relevant entries
-        for (const cachePath of Object.keys(global.require.cache)) {
+        for (const cachePath of Object.keys(nodeRequire.cache)) {
           // Check if the cache path starts with the safe module path
           if (cachePath.startsWith(safeModulePath)) {
-            delete global.require.cache[cachePath];
+            delete nodeRequire.cache[cachePath];
           }
         }
 
-        const pluginJson = global.require(packageJSONPath);
+        const pluginJson = nodeRequire(packageJSONPath);
 
         // Not an Insomnia plugin because it doesn't have the package.json['insomnia']
         if (!('insomnia' in pluginJson)) {
@@ -173,7 +107,7 @@ async function traversePluginPath(pluginMap: Record<string, Plugin>, allPaths: s
         }
 
         // Delete require cache entry and re-require
-        const module = global.require(modulePath);
+        const module = nodeRequire(modulePath);
 
         pluginMap[pluginJson.name] = {
           name: pluginJson.name,
@@ -231,7 +165,7 @@ export async function getPlugins(force = false): Promise<Plugin[]> {
   return plugins;
 }
 
-export function getBundlePluginMap() {
+function getBundlePluginMap() {
   const appBundlePlugins = getAppBundlePlugins();
   const bundlePluginMap: Record<string, Plugin> = {};
   appBundlePlugins.forEach(({ name: pluginName }) => {
@@ -247,7 +181,7 @@ export function getBundlePluginMap() {
         bundlePluginPath = require.resolve(pluginName, { paths: [rootNodeModuleDir] });
       }
       console.log('[plugin] Loading bundled plugin %s from %s', pluginName, bundlePluginPath);
-      const module = global.require(bundlePluginPath);
+      const module = getNodeRequire()(bundlePluginPath);
       bundlePluginMap[pluginName] = {
         name: pluginName,
         description: `Insomnia bundled plugin for ${pluginName}`,

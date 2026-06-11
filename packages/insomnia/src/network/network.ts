@@ -24,16 +24,7 @@ import { EnvironmentType, models, services } from 'insomnia-data';
 import { invariant, serializeNDJSON } from 'insomnia-data/common';
 import orderedJSON from 'json-order';
 
-import {
-  appendTimelineLines,
-  appendToTimelineOnError,
-  applyRequestHooks,
-  applyResponseHooks,
-  executeCurlRequest,
-  getAuthHeader,
-  getTimelinePath,
-  runScript,
-} from '~/network/network-adapter';
+import { getRuntime } from '~/runtimes';
 import { getKVPairFromData } from '~/utils/environment-utils';
 
 import type { ExecutionOption, RequestContext } from '../../../insomnia-scripting-environment/src/objects';
@@ -43,7 +34,7 @@ import { database as db } from '../common/database';
 import { generateId, getContentTypeHeader, getLocationHeader, getSetCookieHeaders } from '../common/misc';
 import { getRenderedRequestAndContext } from '../common/render';
 import { ascendingFirstIndexStringSort } from '../common/sorting';
-import type { HeaderResult, ResponsePatch } from '../main/network/libcurl-promise';
+import type { ResponsePatch } from '../main/network/libcurl-promise';
 import { RenderError } from '../templating/render-error';
 import type { RenderedRequest, RenderPurpose } from '../templating/types';
 import { maskOrDecryptVaultDataIfNecessary } from '../templating/utils';
@@ -52,7 +43,6 @@ import { QUERY_PARAMS } from './api-key/constants';
 import { getAuthObjectOrNull, isAuthEnabled } from './authentication';
 import { filterClientCertificates } from './certificate';
 import type { TransformedExecuteScriptContext } from './concurrency';
-import { addSetCookiesToToughCookieJar } from './set-cookie-util';
 
 const { isRequest } = models.request;
 const { isRequestGroup } = models.requestGroup;
@@ -150,7 +140,7 @@ export const fetchRequestGroupData = async (requestGroupId: string) => {
   const clientCertificates = await services.clientCertificate.findByParentId(workspaceId);
   const caCert = await services.caCertificate.getByParentId(workspaceId);
   const responseId = generateId('res');
-  const timelinePath = await getTimelinePath(responseId);
+  const timelinePath = await getRuntime().network.getTimelinePath(responseId);
   return { environment, settings, clientCertificates, caCert, activeEnvironmentId, timelinePath, responseId };
 };
 
@@ -213,7 +203,7 @@ export const fetchRequestData = async (
   const caCert = await services.caCertificate.getByParentId(workspaceId);
 
   const responseId = generateId('res');
-  const timelinePath = await getTimelinePath(responseId);
+  const timelinePath = await getRuntime().network.getTimelinePath(responseId);
 
   return {
     request,
@@ -252,7 +242,7 @@ export const fetchMcpRequestData = async (mcpRequestId: string) => {
   invariant(settings, 'failed to create settings');
 
   const responseId = generateId('res');
-  const timelinePath = await getTimelinePath(responseId);
+  const timelinePath = await getRuntime().network.getTimelinePath(responseId);
 
   return {
     environment,
@@ -514,7 +504,7 @@ const tryToExecuteScript = async (context: RequestAndContextAndOptionalResponse)
   }
 
   try {
-    const output = await runScript({
+    const output = await getRuntime().network.runScript({
       script,
       context: {
         request,
@@ -647,7 +637,7 @@ const tryToExecuteScript = async (context: RequestAndContextAndOptionalResponse)
       parentFolders: output.parentFolders,
     };
   } catch (err) {
-    await appendToTimelineOnError(
+    await getRuntime().network.appendToTimelineOnError(
       timelinePath,
       serializeNDJSON([{ value: err.message, name: 'Text', timestamp: Date.now() }]),
     );
@@ -798,7 +788,7 @@ export const tryToTransformRequestWithPlugins = async (renderResult: {
 }) => {
   const { request, context } = renderResult;
   try {
-    return await applyRequestHooks(request, context);
+    return await getRuntime().network.applyRequestHooks(request, context);
   } catch {
     throw new Error(`Failed to transform request with plugins: ${request._id}`);
   }
@@ -858,7 +848,7 @@ export async function sendCurlAndWriteTimeline(
   if (!renderedRequest.settingSendCookies) {
     timeline.push({ value: 'Disable cookie sending due to user setting', name: 'Text', timestamp: Date.now() });
   }
-  const authHeader = await getAuthHeader(renderedRequest, finalUrl);
+  const authHeader = await getRuntime().network.getAuthHeader(renderedRequest, finalUrl);
   const requestOptions = {
     requestId,
     req: renderedRequest,
@@ -870,7 +860,7 @@ export async function sendCurlAndWriteTimeline(
     authHeader,
   };
 
-  const output = await executeCurlRequest(requestOptions);
+  const output = await getRuntime().network.executeCurlRequest(requestOptions);
 
   if ('error' in output) {
     if (runtime) {
@@ -893,12 +883,12 @@ export async function sendCurlAndWriteTimeline(
   // todo: move to main process
   debugTimeline.forEach(entry => timeline.push(entry));
   // transform output
-  const { cookies, rejectedCookies, totalSetCookies } = await extractCookies(
-    headerResults,
-    renderedRequest.cookieJar,
-    finalUrl,
-    renderedRequest.settingStoreCookies,
-  );
+  const { cookies, rejectedCookies, totalSetCookies } = await getRuntime().network.extractCookies({
+    setCookieStrings: headerResults.flatMap(({ headers }: any) => getSetCookiesFromResponseHeaders(headers)),
+    currentUrl: getCurrentUrl({ headerResults, finalUrl }),
+    cookieJar: renderedRequest.cookieJar,
+    settingStoreCookies: renderedRequest.settingStoreCookies,
+  });
   rejectedCookies.forEach(errorMessage =>
     timeline.push({ value: `Rejected cookie: ${errorMessage}`, name: 'Text', timestamp: Date.now() }),
   );
@@ -951,7 +941,7 @@ export const responseTransform = async (
   }
   console.log(`[network] Response succeeded req=${patch.parentId} status=${response.statusCode || '?'}`);
   try {
-    return await applyResponseHooks(response, renderedRequest, context);
+    return await getRuntime().network.applyResponseHooks(response, renderedRequest, context);
   } catch (err) {
     console.log('[plugin] Response hook failed', err, response);
     return {
@@ -1006,34 +996,6 @@ export const transformUrl = (
   return { finalUrl: `${protocol}//${socketUrl}`, socketPath };
 };
 
-const extractCookies = async (
-  headerResults: HeaderResult[],
-  cookieJar: any,
-  finalUrl: string,
-  settingStoreCookies: boolean,
-) => {
-  // add set-cookie headers to file(cookiejar) and database
-  if (settingStoreCookies) {
-    // supports many set-cookies over many redirects
-    const redirects: string[][] = headerResults.map(({ headers }: any) => getSetCookiesFromResponseHeaders(headers));
-    const setCookieStrings: string[] = redirects.flat();
-    const totalSetCookies = setCookieStrings.length;
-    if (totalSetCookies) {
-      const currentUrl = getCurrentUrl({ headerResults, finalUrl });
-      const { cookies, rejectedCookies } = await addSetCookiesToToughCookieJar({
-        setCookieStrings,
-        currentUrl,
-        cookieJar,
-      });
-      const hasCookiesToPersist = totalSetCookies > rejectedCookies.length;
-      if (hasCookiesToPersist) {
-        return { cookies, rejectedCookies, totalSetCookies };
-      }
-    }
-  }
-  return { cookies: [], rejectedCookies: [], totalSetCookies: 0 };
-};
-
 export const getSetCookiesFromResponseHeaders = (headers: any[]) => getSetCookieHeaders(headers).map(h => h.value);
 
 export const getCurrentUrl = ({ headerResults, finalUrl }: { headerResults: any; finalUrl: string }): string => {
@@ -1053,5 +1015,5 @@ export const getCurrentUrl = ({ headerResults, finalUrl }: { headerResults: any;
 };
 
 export const defaultSendActionRuntime: SendActionRuntime = {
-  appendTimeline: appendTimelineLines,
+  appendTimeline: (timelinePath, logs) => getRuntime().network.appendTimelineLines(timelinePath, logs),
 };

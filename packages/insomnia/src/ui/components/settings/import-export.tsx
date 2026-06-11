@@ -1,7 +1,6 @@
 import { format } from 'date-fns';
 import { getProductName } from 'insomnia/src/common/constants';
 import { getWorkspaceLabel } from 'insomnia/src/common/get-workspace-label';
-import { exportRequestsHAR, exportWorkspacesHAR } from 'insomnia/src/common/har';
 import { getInsomniaV5DataExport } from 'insomnia/src/common/insomnia-v5';
 import { isNotNullOrUndefined } from 'insomnia/src/common/misc';
 import { AnalyticsEvent } from 'insomnia/src/ui/analytics';
@@ -170,10 +169,10 @@ export const exportProjectToFile = (activeProjectName: string, workspacesForActi
             if (!fileName) {
               return;
             }
-            const stringifiedExport = await exportWorkspacesHAR(
-              workspacesForActiveProject,
-              shouldExportPrivateEnvironments,
-            );
+            const stringifiedExport = await window.main.exportWorkspacesHAR({
+              workspaces: workspacesForActiveProject,
+              includePrivateDocs: shouldExportPrivateEnvironments,
+            });
 
             await writeExportedFileToFileSystem(fileName, stringifiedExport);
 
@@ -332,7 +331,10 @@ export const exportRequestsToFile = (workspaceId: string, requestIds: string[]) 
       try {
         switch (selectedFormat) {
           case VALUE_HAR: {
-            stringifiedExport = await exportRequestsHAR(requests, shouldExportPrivateEnvironments);
+            stringifiedExport = await window.main.exportRequestsHAR({
+              requests,
+              includePrivateDocs: shouldExportPrivateEnvironments,
+            });
             break;
           }
 
@@ -698,7 +700,7 @@ export const ImportExport: FC<Props> = ({ hideSettingsModal, onModalChange }) =>
   const hasUntrackedWorkspaces = untrackedWorkspaces.length > 0;
   const hasUntrackedProjects = untrackedProjects.length > 0;
   const showImportButtons =
-    !isScratchPadWorkspace && (activeProject || features.bulkImport.enabled || isEnterprisePlan);
+    !isScratchPadWorkspace && (activeProject || features.bulkImport?.enabled || isEnterprisePlan);
   if (!isScratchPadWorkspace && !isLoggedIn) {
     return (
       <Button
@@ -840,7 +842,7 @@ export const ImportExport: FC<Props> = ({ hideSettingsModal, onModalChange }) =>
                   {`Import to the "${projectName}" ${strings.project.singular}`}
                 </Button>
               )}
-              {features.bulkImport.enabled ? (
+              {features.bulkImport?.enabled ? (
                 <Button
                   className="flex items-center justify-center gap-2 rounded-xs border border-solid border-(--hl-md) px-4 py-1 text-sm font-semibold text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
                   isDisabled={

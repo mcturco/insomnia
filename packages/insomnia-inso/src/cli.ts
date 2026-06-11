@@ -11,6 +11,8 @@ import { pick } from 'es-toolkit';
 import { isDevelopment, JSON_ORDER_PREFIX, JSON_ORDER_SEPARATOR } from 'insomnia/src/common/constants';
 import { insomniaFetch } from 'insomnia/src/common/insomnia-fetch';
 import { getSendRequestCallbackMemDb } from 'insomnia/src/common/send-request';
+import { initRuntime } from 'insomnia/src/runtimes';
+import { nodeRuntime } from 'insomnia/src/runtimes/runtime.node';
 import { configureFetch } from 'insomnia-api';
 import type {
   Environment,
@@ -23,7 +25,8 @@ import type {
 import { initServices, models } from 'insomnia-data';
 import { deserializeNDJSON } from 'insomnia-data/common';
 import { servicesNodeImpl } from 'insomnia-data/node';
-import { generate, runTestsCli } from 'insomnia-testing';
+import { generate } from 'insomnia-testing/src/generate/generate';
+import { runTestsCli } from 'insomnia-testing/src/run/run';
 import orderedJSON from 'json-order';
 import { parseArgsStringToArgv } from 'string-argv';
 import { v4 as uuidv4 } from 'uuid';
@@ -49,6 +52,7 @@ import { generateDocumentation } from './scripts/docs';
 import { getAppDataDir, getDefaultProductName } from './util';
 
 initServices(servicesNodeImpl);
+initRuntime(nodeRuntime);
 
 export interface GlobalOptions {
   ci: boolean;

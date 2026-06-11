@@ -2,8 +2,30 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import type { StorageRules } from 'insomnia-api';
 import type { RequestGroup, Workspace } from 'insomnia-data';
 import { models, services } from 'insomnia-data';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, GridList, GridListItem, Input, SearchField, Tab, TabList, Tabs } from 'react-aria-components';
+import {
+  type Dispatch,
+  type ForwardedRef,
+  forwardRef,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  Button,
+  GridList,
+  GridListItem,
+  Input,
+  SearchField,
+  Tab,
+  TabList,
+  Tabs,
+  Tooltip,
+  TooltipTrigger,
+} from 'react-aria-components';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import * as reactUse from 'react-use';
 
@@ -22,6 +44,7 @@ import { showModal } from '~/ui/components/modals';
 import { AskModal } from '~/ui/components/modals/ask-modal';
 import { KonnectSettingsModal } from '~/ui/components/modals/konnect-settings-modal';
 import { EmptyNode } from '~/ui/components/sidebar/project-navigation-sidebar/empty-node';
+import { KonnectEnvOnboarding } from '~/ui/components/sidebar/project-navigation-sidebar/konnect-env-onboarding';
 import { KonnectSyncIntro } from '~/ui/components/sidebar/project-navigation-sidebar/konnect-sync-intro/konnect-sync-intro';
 import { UnsyncedWorkspaceNode } from '~/ui/components/sidebar/project-navigation-sidebar/unsynced-workspace-node';
 import { useInsomniaEventStreamContext } from '~/ui/context/app/insomnia-event-stream-context';
@@ -29,6 +52,7 @@ import uiEventBus, { CLOUD_SYNC_FILE_CHANGE } from '~/ui/event-bus';
 import { useTabNavigate } from '~/ui/hooks/use-insomnia-tab';
 import { useKonnectSync } from '~/ui/hooks/use-konnect-sync';
 import { useLoaderDeferData } from '~/ui/hooks/use-loader-defer-data';
+import { useOrganizationPermissions } from '~/ui/hooks/use-organization-features';
 import insomniaLogo from '~/ui/images/insomnia-logo.svg';
 import { isPrimaryClickModifier } from '~/ui/utils';
 
@@ -50,8 +74,39 @@ import { WorkspaceNode } from './workspace-node';
 interface ProjectNavigationSidebarProps {
   storageRules: StorageRules;
   activeNodeId?: string;
+  activeTab: ProjectNavigationSidebarTabId;
   konnectSyncEnabled: boolean;
   onCreateProject: () => void;
+  setActiveTab: Dispatch<SetStateAction<ProjectNavigationSidebarTabId | undefined>>;
+}
+
+export interface ProjectNavigationSidebarHandle {
+  expandProject: (projectId: string) => void;
+}
+
+export type ProjectNavigationSidebarTabId = 'projects' | 'konnect';
+
+function LastSyncedLabel({ lastSyncedAt }: { lastSyncedAt: number | null }) {
+  return lastSyncedAt
+    ? `Last synced: ${getRelativeTimeString(lastSyncedAt, Date.now())}`
+    : 'Not yet synced';
+}
+
+function getRelativeTimeString(timestamp: number, now: number = Date.now()): string {
+  const seconds = Math.floor((now - timestamp) / 1000);
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m ${seconds % 60}s ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h ${minutes % 60}m ago`;
+  }
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h ago`;
 }
 
 const SidebarSearchField = ({
@@ -136,11 +191,10 @@ const NewProjectButton = ({ onPress, isDisabled }: { onPress: () => void; isDisa
   </BasicButton>
 );
 
-export const ProjectNavigationSidebar = ({
-  storageRules,
-  konnectSyncEnabled,
-  onCreateProject,
-}: ProjectNavigationSidebarProps) => {
+const ProjectNavigationSidebarInner = (
+  { storageRules, konnectSyncEnabled, onCreateProject, activeTab, setActiveTab }: ProjectNavigationSidebarProps,
+  ref: ForwardedRef<ProjectNavigationSidebarHandle>,
+) => {
   const navigate = useNavigate();
   const { organizationId, projectId: activeProjectId } = useParams() as {
     organizationId: string;
@@ -177,17 +231,16 @@ export const ProjectNavigationSidebar = ({
     `${organizationId}:project-navigation-konnect-filter`,
     '',
   );
-  const [storedTab, setActiveTab] = reactUse.useLocalStorage<'projects' | 'konnect'>(
-    `${organizationId}:sidebar-tab`,
-    'projects',
-  );
   const [expandedProjectAndWorkspaceIds, setExpandedProjectAndWorkspaceIds] = reactUse.useLocalStorage<string[]>(
     `${organizationId}:nav-expanded-projects-and-workspaces`,
     [],
   );
-  const activeTab = !konnectSyncEnabled ? 'projects' : (storedTab ?? 'projects');
   const isProjectTabActive = activeTab === 'projects';
   const { syncing, progress, startSync, cancelSync } = useKonnectSync();
+  const [lastSyncedAt, setLastSyncedAt] = reactUse.useLocalStorage<number | null>(
+    `${organizationId}:konnect-last-synced-at`,
+    null,
+  );
 
   const nonKonnectProjects = projects.filter(p => !p.konnectControlPlaneId);
   const konnectProjects = projects.filter(p => p.konnectControlPlaneId != null);
@@ -299,10 +352,39 @@ export const ProjectNavigationSidebar = ({
   }, [organizationId, cloudSyncProjectIdsKey]);
 
   const syncKonnectProjectsAndNotify = async () => {
+    const isFirstSync = lastSyncedAt == null;
     const result = await startSync(organizationId);
     setLastSyncResult(result ?? null);
     setShowSyncDetails(false);
     setCopiedReason(null);
+    if (result?.success) {
+      setLastSyncedAt(Date.now());
+      // Navigate to and expand the first Konnect project after a successful sync
+      const allProjects = await services.project.list({ organizationId });
+      const sortedKonnectProjects = models.project.sortProjects(
+        allProjects.filter(p => p.konnectControlPlaneId != null),
+      );
+      const firstKonnectProject = sortedKonnectProjects[0];
+      if (firstKonnectProject) {
+        const workspaces = await services.workspace.findByParentId(firstKonnectProject._id);
+        const envWorkspace = workspaces.find(w => w.scope === 'environment');
+        if (envWorkspace) {
+          // Show environment onboarding after first successful sync
+          if (isFirstSync) {
+            setOnboardingEnvWorkspaceId(envWorkspace._id);
+          }
+          navigate(
+            `/organization/${organizationId}/project/${firstKonnectProject._id}/workspace/${envWorkspace._id}/environment`,
+          );
+        } else {
+          navigate(`/organization/${organizationId}/project/${firstKonnectProject._id}`);
+        }
+        setExpandedProjectAndWorkspaceIds(prev => {
+          const ids = prev || [];
+          return ids.includes(firstKonnectProject._id) ? ids : [...ids, firstKonnectProject._id];
+        });
+      }
+    }
   };
   syncKonnectProjectsAndNotifyRef.current = syncKonnectProjectsAndNotify;
 
@@ -657,40 +739,38 @@ export const ProjectNavigationSidebar = ({
       targetWorkspaceId: string | null,
       dropPosition: 'before' | 'after',
     ) => {
-      setLocalWorkspaceOrders(prev => {
-        const isMoveToDifferentProject = sourceProjectId !== targetProjectId;
-        const workspaces = cachedWorkspacesRef.current.get(targetProjectId) || [];
-        const currentWorkspaceSortOrder = projectWorkspaceSortOrder[targetProjectId] || 'type-manual';
-        // Get the base order of workspace before re-order
-        const baseOrder =
-          // if current order is manual, use the current order in local state or default sort by created time; otherwise use current order to sort
-          currentWorkspaceSortOrder === 'type-manual'
-            ? prev?.[targetProjectId] ||
-              [...workspaces].sort((a, b) => sortMethodMap['created-asc'](a, b)).map(w => w._id)
-            : [...workspaces].sort((a, b) => sortMethodMap[currentWorkspaceSortOrder](a, b)).map(w => w._id);
-        const reordered = (baseOrder as string[]).filter((id: string) => id !== draggedId);
+      const isMoveToDifferentProject = sourceProjectId !== targetProjectId;
+      const workspaces = cachedWorkspacesRef.current.get(targetProjectId) || [];
+      const currentWorkspaceSortOrder = projectWorkspaceSortOrder[targetProjectId] || 'type-manual';
+      // Get the base order of workspace before re-order
+      const baseOrder =
+        // if current order is manual, use the current order in local state or default sort by created time; otherwise use current order to sort
+        currentWorkspaceSortOrder === 'type-manual'
+          ? localWorkspaceOrders?.[targetProjectId] ||
+            [...workspaces].sort((a, b) => sortMethodMap['created-asc'](a, b)).map(w => w._id)
+          : [...workspaces].sort((a, b) => sortMethodMap[currentWorkspaceSortOrder](a, b)).map(w => w._id);
+      const reordered = (baseOrder as string[]).filter((id: string) => id !== draggedId);
 
-        if (targetWorkspaceId === null) {
-          // Drop workspace into a project, add it to the start of the workspace list
-          reordered.unshift(draggedId);
-        } else {
-          const targetIdx = reordered.indexOf(targetWorkspaceId);
-          if (!isMoveToDifferentProject && targetIdx === -1) return prev;
-          reordered.splice(
-            targetIdx === -1 ? reordered.length : dropPosition === 'before' ? targetIdx : targetIdx + 1,
-            0,
-            draggedId,
-          );
-        }
+      if (targetWorkspaceId === null) {
+        // Drop workspace into a project, add it to the start of the workspace list
+        reordered.unshift(draggedId);
+      } else {
+        const targetIdx = reordered.indexOf(targetWorkspaceId);
+        if (!isMoveToDifferentProject && targetIdx === -1) return;
+        reordered.splice(
+          targetIdx === -1 ? reordered.length : dropPosition === 'before' ? targetIdx : targetIdx + 1,
+          0,
+          draggedId,
+        );
+      }
 
-        if (isMoveToDifferentProject || currentWorkspaceSortOrder !== 'type-manual') {
-          // If the current order is not manual, set the order to manual after re-order to persist the custom order
-          setProjectWorkspaceSortOrder(prev => ({ ...prev, [targetProjectId]: 'type-manual' }));
-        }
-        return { ...prev, [targetProjectId]: reordered };
-      });
+      if (isMoveToDifferentProject || currentWorkspaceSortOrder !== 'type-manual') {
+        // If the current order is not manual, set the order to manual after re-order to persist the custom order
+        setProjectWorkspaceSortOrder(prev => ({ ...prev, [targetProjectId]: 'type-manual' }));
+      }
+      setLocalWorkspaceOrders({ ...localWorkspaceOrders, [targetProjectId]: reordered });
     },
-    [projectWorkspaceSortOrder, setLocalWorkspaceOrders],
+    [projectWorkspaceSortOrder, setLocalWorkspaceOrders, localWorkspaceOrders],
   );
 
   const toggleProjectOrWorkspace = useCallback(
@@ -721,6 +801,16 @@ export const ProjectNavigationSidebar = ({
       }
     },
     [expandedProjectAndWorkspaceIds, projectNavigationSidebarFilter, setExpandedProjectAndWorkspaceIds],
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      expandProject(projectId: string) {
+        expandProjectOrWorkspaces([projectId]);
+      },
+    }),
+    [expandProjectOrWorkspaces],
   );
 
   const toggleRequestGroups = useCallback(
@@ -853,6 +943,7 @@ export const ProjectNavigationSidebar = ({
     organizationId,
     virtualizer,
     onWorkspaceReorder: handleLocalWorkspaceReorder,
+    expandedProjectAndWorkspaceIds,
   });
   const { selectedItemId, routeInfo } = useProjectNavigationSidebarNavigation({
     setActiveTab,
@@ -872,6 +963,13 @@ export const ProjectNavigationSidebar = ({
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   const [showSyncDetails, setShowSyncDetails] = useState(false);
   const [copiedReason, setCopiedReason] = useState<string | null>(null);
+  const [onboardingEnvWorkspaceId, setOnboardingEnvWorkspaceId] = useState<string | null>(null);
+  const [envOnboardingNode, setEnvOnboardingNode] = useState<HTMLDivElement | null>(null);
+
+  const dismissEnvOnboarding = useCallback(() => {
+    setOnboardingEnvWorkspaceId(null);
+  }, []);
+
   const skippedRoutesByReason = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const { routeName, reason, serviceName } of lastSyncResult?.skippedRoutes ?? []) {
@@ -884,7 +982,7 @@ export const ProjectNavigationSidebar = ({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden" data-testid="global-navigation-sidebar">
-      <Tabs selectedKey={activeTab} onSelectionChange={key => setActiveTab(key as 'projects' | 'konnect')}>
+      <Tabs selectedKey={activeTab} onSelectionChange={key => setActiveTab(key as ProjectNavigationSidebarTabId)}>
         <SideBarTabList
           konnectSyncEnabled={konnectSyncEnabled}
           isScratchPad={isScratchPad}
@@ -916,14 +1014,22 @@ export const ProjectNavigationSidebar = ({
                     <Icon icon="stop-circle" />
                   </Button>
                 ) : (
-                  <Button
-                    aria-label="Sync Konnect"
-                    onPress={handleSync}
-                    className="flex h-full items-center justify-center gap-1 rounded-xs border border-solid border-(--hl-sm) px-2 text-sm text-(--color-font) transition-all hover:bg-(--hl-xs) focus:outline-none"
-                  >
-                    <Icon icon="refresh" />
-                    Sync
-                  </Button>
+                  <TooltipTrigger delay={300}>
+                    <Button
+                      aria-label="Sync Konnect"
+                      onPress={handleSync}
+                      className="flex h-full items-center justify-center gap-1 rounded-xs border border-solid border-(--hl-sm) px-2 text-sm text-(--color-font) transition-all hover:bg-(--hl-xs) focus:outline-none"
+                    >
+                      <Icon icon="refresh" />
+                      Sync
+                    </Button>
+                    <Tooltip
+                      placement="bottom"
+                      className="rounded-md border border-solid border-(--hl-sm) bg-(--color-bg) px-3 py-1.5 text-xs text-(--color-font) shadow-lg select-none"
+                    >
+                      <LastSyncedLabel lastSyncedAt={lastSyncedAt ?? null} />
+                    </Tooltip>
+                  </TooltipTrigger>
                 )}
                 <Button
                   aria-label="Konnect settings"
@@ -1001,6 +1107,10 @@ export const ProjectNavigationSidebar = ({
                             { withTab: isPrimaryClickModifier(e), shouldNavigate: true, searchParams },
                           );
                         }
+                        // Dismiss onboarding when user navigates to the highlighted environment
+                        if (docId === onboardingEnvWorkspaceId) {
+                          dismissEnvOnboarding();
+                        }
                       } else if (item.kind === 'collectionChild' || item.kind === 'pinnedRequest') {
                         if (
                           routeInfo?.resourceId === docId &&
@@ -1059,6 +1169,8 @@ export const ProjectNavigationSidebar = ({
                             });
                           }
                         }}
+                        highlighted={item.doc._id === onboardingEnvWorkspaceId}
+                        nodeRef={item.doc._id === onboardingEnvWorkspaceId ? setEnvOnboardingNode : undefined}
                       />
                     )}
 
@@ -1188,21 +1300,31 @@ export const ProjectNavigationSidebar = ({
         <KonnectSettingsModal
           onClose={() => setShowKonnectConfigModal(false)}
           syncKonnectProjectsAndNotifyRef={syncKonnectProjectsAndNotifyRef}
+          onDisconnect={() => setLastSyncedAt(null)}
         />
+      )}
+
+      {onboardingEnvWorkspaceId && envOnboardingNode && (
+        <KonnectEnvOnboarding triggerElement={envOnboardingNode} onDismiss={dismissEnvOnboarding} />
       )}
     </div>
   );
 };
 
+export const ProjectNavigationSidebar = forwardRef<ProjectNavigationSidebarHandle, ProjectNavigationSidebarProps>(
+  ProjectNavigationSidebarInner,
+);
+
 export const EmptyProjectNavigationSidebar = ({ onCreateProject }: { onCreateProject: () => void }) => {
   const { organizationId } = useParams() as { organizationId: string };
   const isScratchPad = models.organization.isScratchpadOrganizationId(organizationId);
+  const { features } = useOrganizationPermissions();
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden" data-testid="global-navigation-sidebar">
       <Tabs>
         <SideBarTabList
-          konnectSyncEnabled={false}
+          konnectSyncEnabled={features.konnectSync.enabled}
           isScratchPad={isScratchPad}
           nonKonnectProjectLength={0}
           konnectProjectsLength={0}

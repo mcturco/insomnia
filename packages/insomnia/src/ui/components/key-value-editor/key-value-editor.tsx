@@ -14,6 +14,7 @@ import {
 } from 'react-aria-components';
 
 import { OneLineEditor } from '~/ui/components/.client/codemirror/one-line-editor';
+import { utf8ByteLength } from '~/utils/utf8-bytes';
 
 import { describeByteSize, generateId } from '../../../common/misc';
 import { FileInputButton } from '../base/file-input-button';
@@ -31,6 +32,7 @@ interface Pair {
   type?: string;
   disabled?: boolean;
   multiline?: boolean | string;
+  canDisable?: boolean;
 }
 
 function createEmptyPair() {
@@ -58,6 +60,8 @@ interface Props {
   valuePlaceholder?: string;
   onBlur?: (e: FocusEvent) => void;
   readOnlyPairs?: Pair[];
+  readOnlyDisabledByName?: Record<string, boolean>;
+  onReadOnlyDisabledChange?: (name: string, disabled: boolean) => void;
   onDescriptionToggle?: () => void;
 }
 
@@ -73,6 +77,8 @@ export const KeyValueEditor: FC<Props> = ({
   pairs,
   valuePlaceholder,
   readOnlyPairs,
+  readOnlyDisabledByName,
+  onReadOnlyDisabledChange,
   onDescriptionToggle,
 }) => {
   const [showDescription, setShowDescription] = useState(
@@ -126,7 +132,7 @@ export const KeyValueEditor: FC<Props> = ({
 
       const isFile = 'type' in pair && pair.type === 'file';
       const isMultiline = 'type' in pair && pair.type === 'text' && pair.multiline;
-      const bytes = isMultiline ? Buffer.from(pair.value, 'utf8').length : 0;
+      const bytes = isMultiline ? utf8ByteLength(pair.value) : 0;
 
       let valueEditor = (
         <div className="relative flex h-full w-full flex-1 px-2">
@@ -286,19 +292,19 @@ export const KeyValueEditor: FC<Props> = ({
           {pair => {
             const isFile = pair.type === 'file';
             const isMultiline = pair.type === 'text' && pair.multiline;
-            const bytes = isMultiline ? Buffer.from(pair.value, 'utf8').length : 0;
+            const bytes = isMultiline ? utf8ByteLength(pair.value) : 0;
+            const lowerName = pair.name.toLowerCase();
+            const isPairDisabled = !!readOnlyDisabledByName?.[lowerName];
 
             let valueEditor = (
-              <div className="relative flex h-full w-full flex-1 px-2">
-                <OneLineEditor
-                  id={'key-value-editor__value' + pair.id}
-                  placeholder={valuePlaceholder || 'Value'}
-                  defaultValue={pair.value}
-                  readOnly
-                  getAutocompleteConstants={() => handleGetAutocompleteValueConstants?.(pair) || []}
-                  onChange={() => {}}
-                />
-              </div>
+              <OneLineEditor
+                id={'key-value-editor__value' + pair.id}
+                placeholder={valuePlaceholder || 'Value'}
+                defaultValue={pair.value}
+                readOnly
+                getAutocompleteConstants={() => handleGetAutocompleteValueConstants?.(pair) || []}
+                onChange={() => {}}
+              />
             );
 
             if (isFile) {
@@ -329,7 +335,8 @@ export const KeyValueEditor: FC<Props> = ({
             return (
               <ListBoxItem
                 textValue={pair.name + '-' + pair.value}
-                className="flex h-(--line-height-sm) shrink-0 items-center gap-2 bg-(--color-bg) px-2 outline-hidden"
+                style={{ opacity: isPairDisabled ? '0.4' : '1' }}
+                className={`relative grid h-(--line-height-sm) shrink-0 gap-2 bg-(--color-bg) px-2 outline-hidden ${showDescription ? 'grid-cols-[max-content_1fr_1fr_1fr_max-content]' : 'grid-cols-[max-content_1fr_1fr_max-content]'}`}
               >
                 <div
                   slot="drag"
@@ -337,7 +344,7 @@ export const KeyValueEditor: FC<Props> = ({
                 >
                   <Icon icon="grip-vertical" className="w-2 text-(--hl)" />
                 </div>
-                <div className="relative flex h-full w-full flex-1 px-2">
+                <div>
                   <OneLineEditor
                     id={'key-value-editor__name' + pair.id}
                     placeholder={namePlaceholder || 'Name'}
@@ -346,9 +353,9 @@ export const KeyValueEditor: FC<Props> = ({
                     onChange={() => {}}
                   />
                 </div>
-                {valueEditor}
+                <div>{valueEditor}</div>
                 {showDescription && (
-                  <div className="relative flex h-full w-full flex-1 px-2">
+                  <div>
                     <OneLineEditor
                       id={'key-value-editor__description' + pair.id}
                       placeholder={descriptionPlaceholder || 'Description'}
@@ -358,7 +365,20 @@ export const KeyValueEditor: FC<Props> = ({
                     />
                   </div>
                 )}
-                <div className="flex w-23 shrink-0 items-center gap-2" />
+                <Toolbar className="flex items-center gap-1">
+                  {pair.canDisable && onReadOnlyDisabledChange ? (
+                    <ToggleButton
+                      className="flex aspect-square h-7 items-center justify-center rounded-xs text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset"
+                      onChange={isSelected => onReadOnlyDisabledChange(lowerName, !isSelected)}
+                      isSelected={!isPairDisabled}
+                    >
+                      <Icon icon={isPairDisabled ? 'square' : 'check-square'} />
+                    </ToggleButton>
+                  ) : (
+                    <div aria-hidden="true" className="aspect-square h-7" />
+                  )}
+                  <div aria-hidden="true" className="aspect-square h-7" />
+                </Toolbar>
               </ListBoxItem>
             );
           }}
@@ -376,7 +396,7 @@ export const KeyValueEditor: FC<Props> = ({
           {pair => {
             const isFile = pair.type === 'file';
             const isMultiline = pair.type === 'text' && pair.multiline;
-            const bytes = isMultiline ? Buffer.from(pair.value, 'utf8').length : 0;
+            const bytes = isMultiline ? utf8ByteLength(pair.value) : 0;
             const isOnlyTextAllowed = !allowFile && !allowMultiline;
 
             let valueEditor = (

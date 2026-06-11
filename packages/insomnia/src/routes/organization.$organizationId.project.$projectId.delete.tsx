@@ -39,11 +39,31 @@ export async function clientAction({ params }: Route.ClientActionArgs) {
     }
 
     await services.stats.incrementDeletedRequestsForDescendents(project);
+    await services.projectLintRuleset.remove(projectId);
     await services.project.remove(project);
 
     await database.flushChanges(bufferId);
 
+    await window.main.deleteCompiledRuleset({ projectId });
+
     project.gitRepositoryId && reportGitProjectCount(organizationId, sessionId);
+
+    // If the deleted project is a Konnect project, navigate to another Konnect project
+    if (project.konnectControlPlaneId) {
+      const remainingKonnectProjects = (await services.project.list({ organizationId })).filter(
+        p => p.konnectControlPlaneId != null && p._id !== projectId,
+      );
+
+      if (remainingKonnectProjects.length > 0) {
+        const targetProject = remainingKonnectProjects[0];
+        return redirect(
+          href('/organization/:organizationId/project/:projectId', {
+            organizationId,
+            projectId: targetProject._id,
+          }),
+        );
+      }
+    }
 
     // When redirect to `/organizations/:organizationId`, it sometimes doesn't reload the index loader, so manually redirect to the initial route for the organization
     const initialOrganizationRoute = await getInitialRouteForOrganization({ organizationId });

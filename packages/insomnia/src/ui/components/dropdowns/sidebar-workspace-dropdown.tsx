@@ -54,6 +54,8 @@ interface Props {
   organizationId: string;
   sortOrder?: SortOrder;
   onSortOrderChange: (newSortOrder: SortOrder) => void;
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
 }
 
 interface ActionItem {
@@ -80,6 +82,8 @@ export const SidebarWorkspaceDropdown = ({
   organizationId,
   sortOrder,
   onSortOrderChange,
+  isOpen,
+  onOpenChange,
 }: Props) => {
   const projectId = project._id;
   const workspaceId = workspace._id;
@@ -317,7 +321,12 @@ export const SidebarWorkspaceDropdown = ({
 
   return (
     <Fragment>
-      <MenuTrigger>
+      <MenuTrigger
+        isOpen={isOpen}
+        onOpenChange={isOpen => {
+          onOpenChange(isOpen);
+        }}
+      >
         <Button
           aria-label="SideBar Workspace Actions"
           className="hidden aspect-square h-6 items-center justify-center rounded-xs text-sm text-(--color-font) opacity-0 ring-1 ring-transparent transition-all group-hover:flex group-hover:opacity-100 group-focus:flex group-focus:opacity-100 hover:bg-(--hl-xs) hover:opacity-100 focus:opacity-100 focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm) data-pressed:flex data-pressed:opacity-100"
@@ -431,7 +440,9 @@ export const SidebarWorkspaceDropdown = ({
               {({ close }) => (
                 <div className="flex flex-col gap-4">
                   <div className="flex items-center justify-between gap-2">
-                    <Heading className="text-2xl">Delete {getWorkspaceLabel(workspace).singular}</Heading>
+                    <Heading className="text-2xl">
+                      {project.konnectControlPlaneId ? 'Remove' : 'Delete'} {getWorkspaceLabel(workspace).singular}
+                    </Heading>
                     <Button
                       className="flex aspect-square h-6 shrink-0 items-center justify-center rounded-xs text-sm text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
                       onPress={close}
@@ -450,9 +461,20 @@ export const SidebarWorkspaceDropdown = ({
                     <input type="hidden" name="workspaceId" value={workspaceId} />
                     <div>
                       <p className="line-clamp-5">
-                        This will permanently delete the{' '}
-                        <strong className="break-all whitespace-pre-wrap">{workspaceName}</strong>{' '}
-                        {getWorkspaceLabel(workspace).singular}
+                        {project.konnectControlPlaneId ? (
+                          <>
+                            Do you wish to remove your local copy of the{' '}
+                            <strong className="break-all whitespace-pre-wrap">{workspaceName}</strong>{' '}
+                            {getWorkspaceLabel(workspace).singular}? This will not affect anything in Konnect, or any
+                            other users.
+                          </>
+                        ) : (
+                          <>
+                            This will permanently delete the{' '}
+                            <strong className="break-all whitespace-pre-wrap">{workspaceName}</strong>{' '}
+                            {getWorkspaceLabel(workspace).singular}
+                          </>
+                        )}
                       </p>
                       {models.project.isRemoteProject(project) && (
                         <RadioGroup name="localOnly" defaultValue="false" className="mb-2 flex flex-col gap-2">
@@ -493,7 +515,7 @@ export const SidebarWorkspaceDropdown = ({
                         aria-label="Delete Workspace"
                         className="rounded-xs border border-solid border-(--hl-md) bg-(--color-danger) px-3 py-2 text-(--color-font-danger) transition-colors hover:bg-(--color-danger)/90 hover:no-underline"
                       >
-                        Delete
+                        {project.konnectControlPlaneId ? 'Remove' : 'Delete'}
                       </Button>
                     </div>
                   </deleteWorkspaceFetcher.Form>

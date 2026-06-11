@@ -14,9 +14,8 @@ import type {
 import { models, services } from 'insomnia-data';
 import orderedJSON from 'json-order';
 
-import { renderTemplate } from '~/templating/render-adapter';
-
 import { getOrInheritAuthentication, getOrInheritHeaders } from '../network/network';
+import { getRuntime } from '../runtimes';
 import { NUNJUCKS_TEMPLATE_GLOBAL_PROPERTY_NAME } from '../templating/constants';
 import { RenderError } from '../templating/render-error';
 import type {
@@ -283,7 +282,7 @@ export async function render<T>(
 
       try {
         // @ts-expect-error -- TSCONVERSION
-        input = await renderTemplate({ input, context, path, ignoreUndefinedEnvVariable });
+        input = await getRuntime().templating.renderTemplate({ input, context, path, ignoreUndefinedEnvVariable });
 
         // If the variable outputs a tag, render it again. This is a common use
         // case for environment variables:
@@ -291,7 +290,7 @@ export async function render<T>(
         // @ts-expect-error -- TSCONVERSION
         if (input.includes('{%')) {
           // @ts-expect-error -- TSCONVERSION
-          input = await renderTemplate({ input, context, path, ignoreUndefinedEnvVariable });
+          input = await getRuntime().templating.renderTemplate({ input, context, path, ignoreUndefinedEnvVariable });
         }
       } catch (err) {
         console.log(`Failed to render element ${path}`, input);
@@ -585,9 +584,11 @@ export async function getRenderedRequestAndContext({
   const renderedCookieJar = renderResult._cookieJar;
   renderedRequest.description = await render(description, renderContext, null, 'keep');
   const userAgentHeaders = request.headers.filter(h => h.name.toLowerCase() === 'user-agent');
-  const noUserAgents = userAgentHeaders.length === 0;
-  const allUserAgentHeadersDisabled = userAgentHeaders.every(h => h.disabled === true);
-  const suppressUserAgent = noUserAgents || allUserAgentHeadersDisabled;
+  const hasUserAgentHeader = userAgentHeaders.length > 0;
+  const allUserAgentHeadersDisabled = hasUserAgentHeader && userAgentHeaders.every(h => h.disabled === true);
+  // Suppress the default User-Agent when the request opts out via disableUserAgentHeader,
+  // or when the user added their own User-Agent header(s) and disabled all of them.
+  const suppressUserAgent = request.disableUserAgentHeader || allUserAgentHeadersDisabled;
   // Remove disabled params
   renderedRequest.parameters = renderedRequest.parameters.filter(p => !p.disabled);
   // Remove disabled headers
@@ -653,6 +654,7 @@ export async function getRenderedRequestAndContext({
       settingStoreCookies: renderedRequest.settingStoreCookies,
       settingRebuildPath: renderedRequest.settingRebuildPath,
       settingFollowRedirects: renderedRequest.settingFollowRedirects,
+      disableUserAgentHeader: renderedRequest.disableUserAgentHeader,
       type: renderedRequest.type,
       url: renderedRequest.url,
       preRequestScript: renderedRequest.preRequestScript,

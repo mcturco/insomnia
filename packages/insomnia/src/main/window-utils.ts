@@ -32,6 +32,9 @@ const DEFAULT_HEIGHT = 720;
 const MINIMUM_WIDTH = 500;
 const MINIMUM_HEIGHT = 400;
 const browserWindows = new Map<'Insomnia' | 'HiddenBrowserWindow', ElectronBrowserWindow>();
+export function getMainWindow(): ElectronBrowserWindow | null {
+  return browserWindows.get('Insomnia') ?? null;
+}
 let hiddenWindowIsBusy = false;
 interface Bounds {
   height?: number;
@@ -201,7 +204,7 @@ export function createWindow(): ElectronBrowserWindow {
     webPreferences: {
       preload: path.join(__dirname, 'entry.preload.min.js'),
       zoomFactor: getZoomFactor(),
-      nodeIntegration: true,
+      nodeIntegration: false,
       nodeIntegrationInWorker: false, // must remain false to ensure the nunjucks web worker sandbox does not have access to Node.js APIs
       webviewTag: true,
       // TODO: enable context isolation
