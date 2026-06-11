@@ -21,8 +21,7 @@ node_modules/
 *.tgz
 .yarn-integrity
 .env
-.env.deploy.local
-.vercel
+.wrangler
 dist-web
 .idea
 .reports

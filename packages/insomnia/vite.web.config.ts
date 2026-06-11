@@ -40,6 +40,16 @@ export default defineConfig(({ mode }) => {
       '__DEV__': JSON.stringify(__DEV__),
       'process.env.NODE_ENV': JSON.stringify(mode),
       'process.env.INSOMNIA_ENV': JSON.stringify('web'),
+      // Browser-safe shim for the bare `process` global. The specific
+      // `process.env.*` / `process.type` defines below take precedence (esbuild
+      // matches the longest dotted path), so this only catches everything else:
+      //   - dynamic access like `process[ENV]` in common/constants.ts, which
+      //     runs at module-load — before entry.web.tsx sets window.env — and
+      //     would otherwise throw "process is not defined".
+      //   - stray `process.platform` / `process.versions.node` reads in deps.
+      // Giving it `env`/`versions` objects means those reads return undefined
+      // instead of crashing on property access of undefined.
+      'process': JSON.stringify({ env: {}, platform: 'browser', type: 'renderer', versions: {} }),
       // Node.js packages reference `global`; browsers only have `globalThis`.
       'global': 'globalThis',
       // Override so Electron-conditional branches (process.type === 'renderer')
@@ -51,6 +61,10 @@ export default defineConfig(({ mode }) => {
     // with the Electron build's cache in node_modules/.vite
     cacheDir: 'node_modules/.vite-web',
 
+    // Web-specific static assets (includes _redirects for Cloudflare Pages SPA routing).
+    // Keeps this separate from the Electron build's public/ folder.
+    publicDir: 'public-web',
+
     server: {
       port: 3335, // different port to avoid clashing with the Electron dev server
     },
@@ -58,7 +72,7 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist-web',
       target: 'esnext',
-      sourcemap: true,
+      sourcemap: false,
       rollupOptions: {
         // Nothing is truly external for the browser build — we want everything bundled.
       },
@@ -118,17 +132,27 @@ export default defineConfig(({ mode }) => {
     },
 
     plugins: [
-      // Redirect entry.client.tsx → entry.web.tsx before react-router sees it.
-      // resolveId() is the correct Vite hook for this: it fires during resolution
-      // (before load) and returning a new path makes Vite treat the web entry as
-      // the real module, so relative imports inside it resolve from its own location.
+      // Swap entry.client.tsx's *source* for entry.web.tsx's, while keeping the
+      // module identity as entry.client.tsx.
+      //
+      // We use load() (not resolveId()) deliberately. A resolveId() redirect
+      // changes the module's id to entry.web.tsx, so the emitted chunk's
+      // facadeModuleId becomes entry.web.tsx. React Router's SPA build then runs
+      // an SSR/manifest pass that looks up the client-entry chunk by its
+      // configured path (entry.client.tsx) and throws "Chunk not found:
+      // …/entry.client.tsx", so no index.html is ever emitted.
+      //
+      // load() keeps the id as entry.client.tsx (RR's lookup succeeds) but
+      // returns entry.web.tsx's contents. Both files live in src/, so the
+      // relative imports inside entry.web.tsx (./ui/log, ./web-shim/…) resolve
+      // identically from either location.
       {
         name: 'web-entry-override',
         enforce: 'pre',
-        resolveId(id: string): string | null {
-          // Match both the bare specifier and the fully-resolved absolute path
-          if (id === electronEntryPath || id.endsWith('/entry.client.tsx') || id.endsWith('/entry.client')) {
-            return webEntryPath;
+        load(id: string): string | null {
+          const clean = id.split('?')[0];
+          if (clean === electronEntryPath || clean.endsWith('/entry.client.tsx')) {
+            return fs.readFileSync(webEntryPath, 'utf-8');
           }
           return null;
         },
