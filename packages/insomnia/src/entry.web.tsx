@@ -2,6 +2,11 @@
 // Replaces the Electron preload bridge with in-memory stubs so the app
 // renders in a plain browser without any Electron or Node.js dependencies.
 
+// MUST be first: injects window.main/dialog/app/etc. during the import phase,
+// before any other import subtree evaluates. Some renderer modules access
+// window.main at module-load time, so injecting from this file's body is too late.
+import './web-shim/inject-globals';
+
 // renderer-listeners.ts is intentionally omitted: it registers window.main.on()
 // handlers for Electron IPC events (toggle-preferences, reload-plugins, etc.)
 // that never fire in a plain browser environment.
@@ -29,16 +34,6 @@ import { getInitialEntry } from './utils/router';
 import { createInMemoryDatabase } from './web-shim/database-memory';
 import { MOCK_ACCOUNT_ID, MOCK_ORG_ID, seedMockData } from './web-shim/mock-data';
 import { PasscodeGate } from './web-shim/passcode-gate';
-import {
-  appShim,
-  clipboardShim,
-  dialogShim,
-  envShim,
-  mainShim,
-  pathShim,
-  shellShim,
-  webUtilsShim,
-} from './web-shim/window-main';
 
 // ─── 0. Passcode gate ─────────────────────────────────────────────────────────
 // Rendered in its own React root before the app bootstrap. Skipped when:
@@ -64,18 +59,7 @@ if (PASSCODE_HASH && sessionStorage.getItem('prototype-authed') !== 'true') {
   });
 }
 
-// ─── 1. Inject window globals before anything else runs ───────────────────────
-// The renderer code accesses window.main/dialog/app etc. at module load time
-// in some places, so these must be set synchronously before any other imports
-// fire side effects.
-window.main = mainShim as any;
-window.dialog = dialogShim as any;
-window.app = appShim as any;
-window.shell = shellShim as any;
-window.clipboard = clipboardShim as any;
-window.webUtils = webUtilsShim as any;
-window.path = pathShim;
-window.env = envShim;
+// ─── 1. Window globals are injected by ./web-shim/inject-globals (imported first).
 
 // ─── 2. Initialize in-memory database ────────────────────────────────────────
 // Create a fresh in-memory store. The clientDatabase proxy (database.client.ts)

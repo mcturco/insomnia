@@ -273,6 +273,10 @@ export const mainShim = {
     encryptSecretValue: async (raw: string, _key: JsonWebKey) => raw,
     decryptSecretValue: async (encrypted: string, _key: JsonWebKey) => encrypted,
   },
+  sealedBox: {
+    keyPair: async () => ({ publicKey: new Uint8Array(), secretKey: new Uint8Array() }),
+    open: async () => null,
+  },
   timeline: {
     getPath: async (_responseId: string) => '',
     appendToFile: noopAsync,

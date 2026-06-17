@@ -158,6 +158,27 @@ export default defineConfig(({ mode }) => {
         },
       },
 
+      // Inject the window.main/dialog/app stubs before the route graph evaluates.
+      //
+      // React Router's client bootstrap STATICALLY imports root.tsx (as route0)
+      // and only then DYNAMICALLY imports the entry. Static imports are hoisted
+      // and evaluated first, so root.tsx → auth-session-provider.client.ts runs
+      // its module-load access of window.main.sealedBox BEFORE entry.web.tsx's
+      // body (where the stubs would otherwise be injected). Prepending the
+      // inject-globals side-effect import as root.tsx's FIRST import guarantees
+      // the globals exist before anything in the eager route graph touches them.
+      {
+        name: 'web-inject-globals-first',
+        enforce: 'pre',
+        transform(code: string, id: string): string | null {
+          const clean = id.split('?')[0];
+          if (clean.endsWith('/src/root.tsx')) {
+            return `import '~/web-shim/inject-globals';\n${code}`;
+          }
+          return null;
+        },
+      },
+
       reactRouter(),
 
       tailwindcss(),
