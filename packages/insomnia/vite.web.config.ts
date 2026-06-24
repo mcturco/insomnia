@@ -107,6 +107,13 @@ export default defineConfig(({ mode }) => {
         // transitive deps (mocha, jshint, tough-cookie…) don't crash at import time.
         'node:util': path.resolve(__dirname, './src/web-shim/polyfills/node-util.ts'),
         'util': path.resolve(__dirname, './src/web-shim/polyfills/node-util.ts'),
+        // node:url / url → WHATWG-URL-backed shim (named `URL`, `parse` etc.).
+        'node:url': path.resolve(__dirname, './src/web-shim/polyfills/node-url.ts'),
+        'url': path.resolve(__dirname, './src/web-shim/polyfills/node-url.ts'),
+        // node:crypto / crypto → sync createHash (crypto-js) + Web Crypto randomBytes/UUID.
+        // Safe: a string alias matches `crypto` exactly or `crypto/<sub>`, never `crypto-js`.
+        'node:crypto': path.resolve(__dirname, './src/web-shim/polyfills/node-crypto.ts'),
+        'crypto': path.resolve(__dirname, './src/web-shim/polyfills/node-crypto.ts'),
 
         // ── Package-specific stubs (named exports required) ──────────────────
         // Use dedicated stubs when the consumer does named imports that the
@@ -114,6 +121,12 @@ export default defineConfig(({ mode }) => {
         'jshint': path.resolve(__dirname, './src/web-shim/stubs/jshint.ts'),
         // insomnia-testing pulls in mocha → node:util → crash. Stub the whole
         // package; test-suite routes will fail gracefully at runtime only.
+        // Deep subpath imports (e.g. 'insomnia-testing/src/generate/generate')
+        // must be aliased explicitly and BEFORE the bare-package key — a string
+        // alias is a prefix match, so the bare key would otherwise rewrite the
+        // subpath onto the stub file (…/insomnia-testing.ts/src/…) → ENOTDIR.
+        'insomnia-testing/src/generate/generate': path.resolve(__dirname, './src/web-shim/stubs/insomnia-testing.ts'),
+        'insomnia-testing/src/run/run': path.resolve(__dirname, './src/web-shim/stubs/insomnia-testing.ts'),
         'insomnia-testing': path.resolve(__dirname, './src/web-shim/stubs/insomnia-testing.ts'),
 
         // ── insomnia-data/node: skip the NeDB export, use only services ─────
