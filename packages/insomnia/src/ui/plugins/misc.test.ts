@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { PluginTheme } from '~/common/plugins/bridge-types';
 
-import { containsTemplateSyntax, validateTheme, validateThemeName } from './misc';
+import defaultTheme from '../../plugins/themes/default';
+import { palette } from '../../plugins/themes/palette';
+import { containsTemplateSyntax, generateThemeCSS, getPrimitiveCSS, validateTheme, validateThemeName } from './misc';
 
 describe('containsTemplateSyntax', () => {
   it('will return true if the value contains nunjucks without', () => {
@@ -82,6 +84,54 @@ describe('validateTheme', () => {
 
     const message = mockMessage(['styles', 'appHeader', 'foreground', 'default']);
     expect(console.error).toHaveBeenLastCalledWith(message);
+  });
+});
+
+describe('getPrimitiveCSS', () => {
+  it('emits a --primitive-* var and an -rgb companion for every palette entry', () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const css = getPrimitiveCSS();
+
+    // ramp entry + its rgb companion
+    expect(css).toContain('--primitive-gray-90:');
+    expect(css).toContain('--primitive-gray-90-rgb:');
+    // camelCase family is kebab-cased
+    expect(css).toContain('--primitive-insomnia-purple-50:');
+    expect(css).toContain('--primitive-electric-lime-60:');
+    // top-level (non-ramp) entries
+    expect(css).toContain('--primitive-black:');
+    expect(css).toContain('--primitive-white:');
+
+    // no palette value failed to parse
+    expect(logSpy).not.toHaveBeenCalledWith('[theme] Failed to parse primitive color', expect.anything(), expect.anything());
+    logSpy.mockRestore();
+  });
+});
+
+describe('default theme (primitive-sourced)', () => {
+  it('assigns semantic roles from palette primitives', () => {
+    expect(defaultTheme.theme.background.default).toEqual(palette.gray['90']);
+    expect(defaultTheme.theme.background.cta).toEqual(palette.insomniaPurple['50']);
+  });
+
+  it('defines app-controlled method + status tokens in rawCss', () => {
+    const { rawCss } = defaultTheme.theme;
+    expect(rawCss).toContain('--method-color-bg-get:');
+    expect(rawCss).toContain('--method-color-text-get:');
+    expect(rawCss).toContain('--status-color-bg-3xx:');
+  });
+
+  it('only uses keys that exist in the plugin theme contract', () => {
+    const allowed = ['background', 'foreground', 'highlight', 'styles', 'rawCss'];
+    expect(Object.keys(defaultTheme.theme).every(key => allowed.includes(key))).toBe(true);
+  });
+
+  it('generateThemeCSS emits the semantic CSS vars (concrete colors, not var refs)', () => {
+    const css = generateThemeCSS(defaultTheme as unknown as PluginTheme);
+    expect(css).toContain('--color-bg:');
+    expect(css).toContain('--color-surprise:');
+    // semantic layer is resolved hex -> rgb(), never a var() reference
+    expect(css).not.toContain('--color-bg: var(');
   });
 });
 

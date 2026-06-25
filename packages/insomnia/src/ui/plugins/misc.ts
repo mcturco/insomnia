@@ -5,6 +5,7 @@ import { getAppDefaultTheme } from 'insomnia-data/common';
 import type { PluginTheme, ThemeBlock } from '~/common/plugins/bridge-types';
 import type { ColorScheme } from '~/common/plugins/types';
 
+import { palette } from '../../plugins/themes/palette';
 import { plugins } from './renderer-bridge';
 
 export interface CompleteStyleBlock {
@@ -220,6 +221,40 @@ function wrapStyles(selector: string, styles: string) {
   return `${selector} {\n${styles}\n}\n\n`;
 }
 
+/**
+ * Tier 1 — emit the primitive palette as global `--primitive-<family>-<step>`
+ * CSS custom properties (plus `-rgb` companions for `rgba()` usage). These are
+ * mode-agnostic raw colors; semantic (Tier 2) and method/status (Tier 3) tokens
+ * reference them via `var(--primitive-*)`. See `plugins/themes/palette.ts`.
+ */
+export function getPrimitiveCSS() {
+  const lines: string[] = [];
+
+  const addVar = (name: string, value: string) => {
+    try {
+      const rgb = Color(value).rgb();
+      lines.push(`\t--primitive-${name}: ${rgb.string()};`, `\t--primitive-${name}-rgb: ${rgb.array().join(', ')};`);
+    } catch {
+      console.log('[theme] Failed to parse primitive color', name, value);
+    }
+  };
+
+  // camelCase family name -> kebab-case (e.g. insomniaPurple -> insomnia-purple)
+  const toKebab = (family: string) => family.replace(/[A-Z]/g, m => `-${m.toLowerCase()}`);
+
+  for (const [family, value] of Object.entries(palette)) {
+    if (typeof value === 'string') {
+      addVar(toKebab(family), value);
+      continue;
+    }
+    for (const [step, hex] of Object.entries(value)) {
+      addVar(`${toKebab(family)}-${step}`, hex);
+    }
+  }
+
+  return `:root {\n${lines.join('\n')}\n}\n\n`;
+}
+
 export function getColorScheme({ autoDetectColorScheme }: ThemeSettings): ColorScheme {
   if (!autoDetectColorScheme) {
     return 'default';
@@ -262,10 +297,28 @@ export function applyColorScheme(settings: ThemeSettings) {
 }
 const themeStyleSheets = new Map<string, CSSStyleSheet>();
 
+// The Tier 1 primitive palette is mode-agnostic and shared by every theme, so it
+// is injected once and kept OUT of `themeStyleSheets` so theme switches never
+// clear it. Registered before the active theme so its `var(--primitive-*)`
+// references resolve.
+let primitiveStyleSheet: CSSStyleSheet | undefined;
+
+function registerPrimitiveStyleSheet() {
+  if (primitiveStyleSheet || !document || !('adoptedStyleSheets' in document)) {
+    return;
+  }
+
+  primitiveStyleSheet = new CSSStyleSheet();
+  primitiveStyleSheet.replaceSync(getPrimitiveCSS());
+  document.adoptedStyleSheets = [...document.adoptedStyleSheets, primitiveStyleSheet];
+}
+
 export async function setTheme(themeName: string) {
   if (!document || !('adoptedStyleSheets' in document)) {
     return;
   }
+
+  registerPrimitiveStyleSheet();
 
   const themes = await plugins.getThemes();
   let selectedTheme = themes.find(t => t.theme.name === themeName);

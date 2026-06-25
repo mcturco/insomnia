@@ -1216,6 +1216,28 @@ button {
   text-shadow: 0 0 0.05em var(--color-surprise);
   color: var(--color-font-surprise) !important;
 }
+/* HTTP status ranges: app-controlled `--status-color-*` tokens (default theme)
+   with the prior semantic var as fallback, so other themes are unchanged. */
+.bg-status-1xx {
+  background: var(--status-color-bg-1xx, var(--color-info)) !important;
+  color: var(--status-color-text-1xx, var(--color-font-info)) !important;
+}
+.bg-status-2xx {
+  background: var(--status-color-bg-2xx, var(--color-success)) !important;
+  color: var(--status-color-text-2xx, var(--color-font-success)) !important;
+}
+.bg-status-3xx {
+  background: var(--status-color-bg-3xx, var(--color-surprise)) !important;
+  color: var(--status-color-text-3xx, var(--color-font-surprise)) !important;
+}
+.bg-status-4xx {
+  background: var(--status-color-bg-4xx, var(--color-warning)) !important;
+  color: var(--status-color-text-4xx, var(--color-font-warning)) !important;
+}
+.bg-status-5xx {
+  background: var(--status-color-bg-5xx, var(--color-danger)) !important;
+  color: var(--status-color-text-5xx, var(--color-font-danger)) !important;
+}
 .font-error {
   color: var(--color-danger);
 }
