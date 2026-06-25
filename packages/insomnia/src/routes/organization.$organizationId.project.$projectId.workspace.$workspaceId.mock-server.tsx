@@ -28,6 +28,7 @@ import { MockRouteModal } from '~/ui/components/modals/mock-route-modal';
 import { EmptyStatePane } from '~/ui/components/panes/empty-state-pane';
 import { SvgIcon } from '~/ui/components/svg-icon';
 import { OrganizationTabList } from '~/ui/components/tabs/tab-list';
+import { MethodBadge } from '~/ui/components/tags/method-badge';
 import { formatMethodName } from '~/ui/components/tags/method-tag';
 import { showResourceNotFoundToast } from '~/ui/components/toast-notification';
 import WorkspacePaneHeader from '~/ui/components/workspace/workspace-pane-header';
@@ -274,21 +275,7 @@ const Component = () => {
                   >
                     <div className="relative flex h-(--line-height-xs) w-full items-center gap-2 overflow-hidden px-4 text-(--hl) outline-hidden transition-colors select-none group-hover:bg-(--hl-xs) group-focus:bg-(--hl-sm) group-aria-selected:text-(--color-font)">
                       <span className="absolute top-0 left-0 h-full w-[2px] bg-transparent transition-colors group-aria-selected:bg-(--color-surprise)" />
-                      <span
-                        className={`flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) text-[0.65rem] ${
-                          {
-                            GET: 'bg-[rgba(var(--color-surprise-rgb),0.5)] text-(--color-font-surprise)',
-                            POST: 'bg-[rgba(var(--color-success-rgb),0.5)] text-(--color-font-success)',
-                            HEAD: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-                            OPTIONS: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-                            DELETE: 'bg-[rgba(var(--color-danger-rgb),0.5)] text-(--color-font-danger)',
-                            PUT: 'bg-[rgba(var(--color-warning-rgb),0.5)] text-(--color-font-warning)',
-                            PATCH: 'bg-[rgba(var(--color-notice-rgb),0.5)] text-(--color-font-notice)',
-                          }[item.method] || 'bg-(--hl-md) text-(--color-font)'
-                        }`}
-                      >
-                        {formatMethodName(item.method)}
-                      </span>
+                      <MethodBadge method={item.method} label={formatMethodName(item.method)} />
                       <span className="flex-1 truncate">{item.name}</span>
                       <span className="flex-1" />
                       <MenuTrigger>

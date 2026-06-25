@@ -13,7 +13,7 @@ interface Props {
 }
 
 export const GrpcStatusTag: FC<Props> = memo(({ statusMessage, statusCode, small, tooltipDelay }) => {
-  const colorClass = statusCode === GRPC_STATUS_OK ? 'bg-success' : 'bg-danger';
+  const colorClass = statusCode === GRPC_STATUS_OK ? 'bg-status-2xx' : 'bg-status-5xx';
   const message = statusCode === GRPC_STATUS_OK ? 'OK' : statusMessage;
   return (
     <div

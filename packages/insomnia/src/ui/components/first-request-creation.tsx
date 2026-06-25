@@ -14,9 +14,10 @@ import { AnalyticsEvent } from '~/ui/analytics';
 import { createKeybindingsHandler, useKeyboardShortcuts } from '~/ui/components/keydown-binder';
 import { ImportModal } from '~/ui/components/modals/import-modal/import-modal';
 import { SvgIcon } from '~/ui/components/svg-icon';
+import { MethodBadge } from '~/ui/components/tags/method-badge';
 import { showToast } from '~/ui/components/toast-notification';
 import { Tooltip } from '~/ui/components/tooltip';
-import { getBadgeClassName, ResourceIcon } from '~/ui/components/workspace/resource-icon';
+import { ResourceIcon } from '~/ui/components/workspace/resource-icon';
 import { getProjectRecentRequests, type RecentProjectRequest } from '~/ui/utils/recent-project-requests';
 
 import { Icon } from './icon';
@@ -345,7 +346,7 @@ export const FirstRequestCreation = ({
     {
       id: 'pokemon',
       label: 'List pokemon',
-      icon: <span className={getBadgeClassName('GET')}>GET</span>,
+      icon: <MethodBadge method="GET" />,
       badge: 'GET',
       onClick: handleCreatePokemonRequest,
     },

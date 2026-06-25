@@ -61,6 +61,7 @@ import { NewWorkspaceModal } from '~/ui/components/modals/new-workspace-modal';
 import { CertificatesModal } from '~/ui/components/modals/workspace-certificates-modal';
 import { WorkspaceEnvironmentsEditModal } from '~/ui/components/modals/workspace-environments-edit-modal';
 import { OrganizationTabList } from '~/ui/components/tabs/tab-list';
+import { MethodBadge } from '~/ui/components/tags/method-badge';
 import { formatMethodName } from '~/ui/components/tags/method-tag';
 import { showResourceNotFoundToast, showToast } from '~/ui/components/toast-notification';
 import WorkspacePaneHeader from '~/ui/components/workspace/workspace-pane-header';
@@ -1052,9 +1053,10 @@ const Component = ({ params }: Route.ComponentProps) => {
                               <Button
                                 key={method}
                                 onPress={() => navigateToPath(`paths.${item.path}.${method}`)}
-                                className={`flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) text-[0.65rem] http-method-${method.toUpperCase()}`}
+                                className="shrink-0 outline-hidden"
+                                aria-label={method.toUpperCase()}
                               >
-                                {formatMethodName(method.toUpperCase())}
+                                <MethodBadge method={method.toUpperCase()} label={formatMethodName(method.toUpperCase())} />
                               </Button>
                             ))}
                           </div>

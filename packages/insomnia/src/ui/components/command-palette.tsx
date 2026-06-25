@@ -34,7 +34,7 @@ import { Icon } from '~/ui/components/icon';
 import { useDocBodyKeyboardShortcuts } from '~/ui/components/keydown-binder';
 import { showModal } from '~/ui/components/modals';
 import { AlertModal } from '~/ui/components/modals/alert-modal';
-import { getMethodShortHand } from '~/ui/components/tags/method-tag';
+import { MethodBadge } from '~/ui/components/tags/method-badge';
 import { useInsomniaEventStreamContext } from '~/ui/context/app/insomnia-event-stream-context';
 import { useTabNavigate } from '~/ui/hooks/use-insomnia-tab';
 import { isPrimaryClickModifier } from '~/ui/utils';
@@ -319,33 +319,12 @@ const CommandPaletteCombobox = ({ close }: { close: () => void }) => {
       name: 'Requests',
       children: currentRequests.map(request => ({
         id: request.item._id,
-        icon: isRequest(request.item) ? (
-          <span
-            className={`flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) text-[0.65rem] ${
-              {
-                GET: 'bg-[rgba(var(--color-surprise-rgb),0.5)] text-(--color-font-surprise)',
-                POST: 'bg-[rgba(var(--color-success-rgb),0.5)] text-(--color-font-success)',
-                HEAD: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-                OPTIONS: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-                DELETE: 'bg-[rgba(var(--color-danger-rgb),0.5)] text-(--color-font-danger)',
-                PUT: 'bg-[rgba(var(--color-warning-rgb),0.5)] text-(--color-font-warning)',
-                PATCH: 'bg-[rgba(var(--color-notice-rgb),0.5)] text-(--color-font-notice)',
-              }[request.item.method] || 'bg-(--hl-md) text-(--color-font)'
-            }`}
-          >
-            {getMethodShortHand(request.item)}
-          </span>
-        ) : models.webSocketRequest.isWebSocketRequest(request.item) ? (
-          <span className="flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) bg-[rgba(var(--color-notice-rgb),0.5)] text-[0.65rem] text-(--color-font-notice)">
-            WS
-          </span>
-        ) : (
-          models.grpcRequest.isGrpcRequest(request.item) && (
-            <span className="flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) bg-[rgba(var(--color-info-rgb),0.5)] text-[0.65rem] text-(--color-font-info)">
-              gRPC
-            </span>
-          )
-        ),
+        icon:
+          isRequest(request.item) ||
+          models.webSocketRequest.isWebSocketRequest(request.item) ||
+          models.grpcRequest.isGrpcRequest(request.item) ? (
+            <MethodBadge request={request.item} />
+          ) : null,
         name: request.name,
         presence: [],
         description: request.item.url,
@@ -421,33 +400,12 @@ const CommandPaletteCombobox = ({ close }: { close: () => void }) => {
       name: 'Other Requests',
       children: otherRequests.map(request => ({
         id: request.item._id,
-        icon: isRequest(request.item) ? (
-          <span
-            className={`flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) text-[0.65rem] ${
-              {
-                GET: 'bg-[rgba(var(--color-surprise-rgb),0.5)] text-(--color-font-surprise)',
-                POST: 'bg-[rgba(var(--color-success-rgb),0.5)] text-(--color-font-success)',
-                HEAD: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-                OPTIONS: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-                DELETE: 'bg-[rgba(var(--color-danger-rgb),0.5)] text-(--color-font-danger)',
-                PUT: 'bg-[rgba(var(--color-warning-rgb),0.5)] text-(--color-font-warning)',
-                PATCH: 'bg-[rgba(var(--color-notice-rgb),0.5)] text-(--color-font-notice)',
-              }[request.item.method] || 'bg-(--hl-md) text-(--color-font)'
-            }`}
-          >
-            {getMethodShortHand(request.item)}
-          </span>
-        ) : models.webSocketRequest.isWebSocketRequest(request.item) ? (
-          <span className="flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) bg-[rgba(var(--color-notice-rgb),0.5)] text-[0.65rem] text-(--color-font-notice)">
-            WS
-          </span>
-        ) : (
-          models.grpcRequest.isGrpcRequest(request.item) && (
-            <span className="flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) bg-[rgba(var(--color-info-rgb),0.5)] text-[0.65rem] text-(--color-font-info)">
-              gRPC
-            </span>
-          )
-        ),
+        icon:
+          isRequest(request.item) ||
+          models.webSocketRequest.isWebSocketRequest(request.item) ||
+          models.grpcRequest.isGrpcRequest(request.item) ? (
+            <MethodBadge request={request.item} />
+          ) : null,
         name: request.name,
         presence: [],
         description: (

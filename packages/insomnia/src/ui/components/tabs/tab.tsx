@@ -5,6 +5,7 @@ import React, { useCallback } from 'react';
 import { Button, GridListItem } from 'react-aria-components';
 
 import type { WorkspaceFileIssue } from '~/main/git-service';
+import { MethodBadge } from '~/ui/components/tags/method-badge';
 import { scrollElementIntoView } from '~/ui/utils';
 
 import { useInsomniaTabContext } from '../../context/app/insomnia-tab-context';
@@ -39,19 +40,6 @@ export interface BaseTab {
   method?: string;
   temporary?: boolean;
 }
-
-const REQUEST_METHOD_STYLE_MAP: Record<string, string> = {
-  GET: 'text-(--color-font-fix) bg-(--color-fix)',
-  POST: 'text-(--color-font-success) bg-(--color-success)',
-  GQL: 'text-(--color-font-success) bg-(--color-success)',
-  HEAD: 'text-(--color-font-info) bg-(--color-info)',
-  OPTIONS: 'text-(--color-font-info) bg-(--color-info)',
-  DELETE: 'text-(--color-font-danger) bg-(--color-danger)',
-  PUT: 'text-(--color-font-warning) bg-(--color-warning)',
-  PATCH: 'text-(--color-font-notice) bg-(--color-notice)',
-  WS: 'text-(--color-font-notice) bg-(--color-notice)',
-  gRPC: 'text-(--color-font-info) bg-(--color-info)',
-};
 
 const WORKSPACE_TAB_UI_MAP: Partial<Record<TabType, any>> = {
   collection: {
@@ -99,14 +87,7 @@ export const InsomniaTab = ({ tab, fileIssue }: { tab: BaseTab; fileIssue?: Work
     }
 
     if (type === 'request' || type === 'mockRoute') {
-      return (
-        <span
-          aria-label="Tab Tag"
-          className={`flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) text-[0.65rem] ${REQUEST_METHOD_STYLE_MAP[tab?.method || tab?.tag || '']}`}
-        >
-          {tab.tag}
-        </span>
-      );
+      return <MethodBadge aria-label="Tab Tag" method={tab?.method || tab?.tag || ''} label={tab.tag} />;
     }
 
     if (type === 'folder') {

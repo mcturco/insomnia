@@ -1,6 +1,5 @@
 import type {
   GrpcRequest,
-  McpRequest,
   Request,
   RequestGroup,
   SocketIORequest,
@@ -21,7 +20,7 @@ import type {
   CollectionChildFlatItem,
   PinnedRequestFlatItem,
 } from '~/ui/components/sidebar/project-navigation-sidebar/types';
-import { getMethodShortHand, getRequestMethodShortHand } from '~/ui/components/tags/method-tag';
+import { MethodBadge } from '~/ui/components/tags/method-badge';
 import { useExecutionState } from '~/ui/hooks/use-execution-state';
 import { useReadyState } from '~/ui/hooks/use-ready-state';
 import { useRequestGroupPatcher, useRequestMetaPatcher, useRequestPatcher } from '~/ui/hooks/use-request';
@@ -34,50 +33,6 @@ import {
   ROW_CLASS,
   TOGGLE_BTN_CLASS,
 } from './project-navigation-sidebar-utils';
-
-function MethodBadge({ doc }: { doc: Request | WebSocketRequest | GrpcRequest | SocketIORequest | McpRequest }) {
-  if (models.request.isRequest(doc)) {
-    const methodColorMap: Record<string, string> = {
-      GET: 'bg-[rgba(var(--color-surprise-rgb),0.5)] text-(--color-font-surprise)',
-      POST: 'bg-[rgba(var(--color-success-rgb),0.5)] text-(--color-font-success)',
-      HEAD: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-      OPTIONS: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-      DELETE: 'bg-[rgba(var(--color-danger-rgb),0.5)] text-(--color-font-danger)',
-      PUT: 'bg-[rgba(var(--color-warning-rgb),0.5)] text-(--color-font-warning)',
-      PATCH: 'bg-[rgba(var(--color-notice-rgb),0.5)] text-(--color-font-notice)',
-    };
-    return (
-      <span
-        className={`flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) text-[0.65rem] ${methodColorMap[doc.method] || 'bg-(--hl-md) text-(--color-font)'}`}
-      >
-        {getMethodShortHand(doc)}
-      </span>
-    );
-  }
-  const docShortHand = getRequestMethodShortHand(doc);
-  if (models.webSocketRequest.isWebSocketRequest(doc)) {
-    return (
-      <span className="flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) bg-[rgba(var(--color-notice-rgb),0.5)] text-[0.65rem] text-(--color-font-notice)">
-        {docShortHand}
-      </span>
-    );
-  }
-  if (models.socketIORequest.isSocketIORequest(doc)) {
-    return (
-      <span className="flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) bg-[rgba(var(--color-notice-rgb),0.5)] text-[0.65rem] text-(--color-font-notice)">
-        {docShortHand}
-      </span>
-    );
-  }
-  if (models.grpcRequest.isGrpcRequest(doc)) {
-    return (
-      <span className="flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) bg-[rgba(var(--color-info-rgb),0.5)] text-[0.65rem] text-(--color-font-info)">
-        {docShortHand}
-      </span>
-    );
-  }
-  return null;
-}
 
 const WebSocketSpinner = ({ requestId }: { requestId: string }) => {
   const readyState = useReadyState({ requestId, protocol: 'webSocket' });
@@ -163,7 +118,7 @@ export const RequestNode = ({ item, onToggleFolder, className }: RequestNodeProp
         </Button>
       )}
       <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-xs px-2 py-1 text-left transition-colors">
-        {isFolder ? <Icon icon="folder" className={ICON_CLASS} /> : <MethodBadge doc={doc} />}
+        {isFolder ? <Icon icon="folder" className={ICON_CLASS} /> : <MethodBadge request={doc} />}
         <EditableInput
           value={getRequestNameOrFallback(doc)}
           name="request name"

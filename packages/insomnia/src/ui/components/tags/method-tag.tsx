@@ -29,18 +29,22 @@ function removeVowels(str: string) {
   return str.replace(/[aeiouyAEIOUY]/g, '');
 }
 
+// Badge backgrounds use the app-controlled `--method-color-*` tokens (defined by
+// the default theme) and fall back to the prior semantic vars, so the other
+// built-in themes and plugin themes are visually unchanged.
 const requestBadgeClassNames: Record<string, string> = {
-  GET: 'bg-(--color-fix) text-(--color-font-fix)',
-  POST: 'bg-(--color-success) text-(--color-font-success)',
-  HEAD: 'bg-(--color-info) text-(--color-font-info)',
-  OPTIONS: 'bg-(--color-info) text-(--color-font-info)',
-  DELETE: 'bg-(--color-danger) text-(--color-font-danger)',
-  PUT: 'bg-(--color-warning) text-(--color-font-warning)',
-  PATCH: 'bg-(--color-notice) text-(--color-font-notice)',
-  WS: 'bg-(--color-notice) text-(--color-font-notice)',
-  IO: 'bg-(--color-notice) text-(--color-font-notice)',
-  gRPC: 'bg-(--color-info) text-(--color-font-info)',
-  MCP: 'bg-(--color-info) text-(--color-font-info)',
+  GET: 'bg-[var(--method-color-bg-get,var(--color-fix))] text-[var(--method-color-text-get,var(--color-font-fix))]',
+  GQL: 'bg-[var(--method-color-bg-gql,var(--color-success))] text-[var(--method-color-text-gql,var(--color-font-success))]',
+  POST: 'bg-[var(--method-color-bg-post,var(--color-success))] text-[var(--method-color-text-post,var(--color-font-success))]',
+  HEAD: 'bg-[var(--method-color-bg-head,var(--color-info))] text-[var(--method-color-text-head,var(--color-font-info))]',
+  OPTIONS: 'bg-[var(--method-color-bg-options,var(--color-info))] text-[var(--method-color-text-options,var(--color-font-info))]',
+  DELETE: 'bg-[var(--method-color-bg-delete,var(--color-danger))] text-[var(--method-color-text-delete,var(--color-font-danger))]',
+  PUT: 'bg-[var(--method-color-bg-put,var(--color-warning))] text-[var(--method-color-text-put,var(--color-font-warning))]',
+  PATCH: 'bg-[var(--method-color-bg-patch,var(--color-notice))] text-[var(--method-color-text-patch,var(--color-font-notice))]',
+  WS: 'bg-[var(--method-color-bg-ws,var(--color-notice))] text-[var(--method-color-text-ws,var(--color-font-notice))]',
+  IO: 'bg-[var(--method-color-bg-io,var(--color-notice))] text-[var(--method-color-text-io,var(--color-font-notice))]',
+  gRPC: 'bg-[var(--method-color-bg-grpc,var(--color-info))] text-[var(--method-color-text-grpc,var(--color-font-info))]',
+  MCP: 'bg-[var(--method-color-bg-mcp,var(--color-info))] text-[var(--method-color-text-mcp,var(--color-font-info))]',
 };
 
 export const getRequestBadgeClassName = (badge: string) => {

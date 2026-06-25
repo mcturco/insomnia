@@ -29,12 +29,12 @@ export const StringStatusTag = memo(
   }) => {
     const colorClass =
       {
-        info: 'bg-info',
-        success: 'bg-success',
-        surprise: 'bg-surprise',
-        warning: 'bg-warning',
-        danger: 'bg-danger',
-      }[status] || 'bg-surprise';
+        info: 'bg-status-1xx',
+        success: 'bg-status-2xx',
+        surprise: 'bg-status-3xx',
+        warning: 'bg-status-4xx',
+        danger: 'bg-status-5xx',
+      }[status] || 'bg-status-3xx';
 
     return (
       <div className={classnames('tag', colorClass, { 'tag--small': small })} data-testid="response-status-tag">

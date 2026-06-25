@@ -31,7 +31,7 @@ import { EditableInput } from '~/ui/components/editable-input';
 import { Icon } from '~/ui/components/icon';
 import { showModal } from '~/ui/components/modals';
 import { AskModal } from '~/ui/components/modals/ask-modal';
-import { getMethodShortHand } from '~/ui/components/tags/method-tag';
+import { MethodBadge } from '~/ui/components/tags/method-badge';
 
 import type { Route } from './+types/organization.$organizationId.project.$projectId.workspace.$workspaceId.test.test-suite.$testSuiteId';
 
@@ -134,33 +134,9 @@ const UnitTestItemView = ({ unitTest }: { unitTest: UnitTest; testsRunning: bool
 
                 return (
                   <Fragment>
-                    {isRequest(request) && (
-                      <span
-                        className={`flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) text-[0.65rem] ${
-                          {
-                            GET: 'bg-[rgba(var(--color-surprise-rgb),0.5)] text-(--color-font-surprise)',
-                            POST: 'bg-[rgba(var(--color-success-rgb),0.5)] text-(--color-font-success)',
-                            HEAD: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-                            OPTIONS: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-                            DELETE: 'bg-[rgba(var(--color-danger-rgb),0.5)] text-(--color-font-danger)',
-                            PUT: 'bg-[rgba(var(--color-warning-rgb),0.5)] text-(--color-font-warning)',
-                            PATCH: 'bg-[rgba(var(--color-notice-rgb),0.5)] text-(--color-font-notice)',
-                          }[request.method] || 'bg-(--hl-md) text-(--color-font)'
-                        }`}
-                      >
-                        {getMethodShortHand(request)}
-                      </span>
-                    )}
-                    {models.webSocketRequest.isWebSocketRequest(request) && (
-                      <span className="flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) bg-[rgba(var(--color-notice-rgb),0.5)] text-[0.65rem] text-(--color-font-notice)">
-                        WS
-                      </span>
-                    )}
-                    {models.grpcRequest.isGrpcRequest(request) && (
-                      <span className="flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) bg-[rgba(var(--color-info-rgb),0.5)] text-[0.65rem] text-(--color-font-info)">
-                        gRPC
-                      </span>
-                    )}
+                    {(isRequest(request) ||
+                      models.webSocketRequest.isWebSocketRequest(request) ||
+                      models.grpcRequest.isGrpcRequest(request)) && <MethodBadge request={request} />}
                     <span>{request.name || request.url || 'Untitled request'}</span>
                   </Fragment>
                 );
@@ -186,33 +162,9 @@ const UnitTestItemView = ({ unitTest }: { unitTest: UnitTest; testsRunning: bool
                 >
                   {({ isSelected }) => (
                     <Fragment>
-                      {isRequest(request) && (
-                        <span
-                          className={`flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) text-[0.65rem] ${
-                            {
-                              GET: 'bg-[rgba(var(--color-surprise-rgb),0.5)] text-(--color-font-surprise)',
-                              POST: 'bg-[rgba(var(--color-success-rgb),0.5)] text-(--color-font-success)',
-                              HEAD: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-                              OPTIONS: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-                              DELETE: 'bg-[rgba(var(--color-danger-rgb),0.5)] text-(--color-font-danger)',
-                              PUT: 'bg-[rgba(var(--color-warning-rgb),0.5)] text-(--color-font-warning)',
-                              PATCH: 'bg-[rgba(var(--color-notice-rgb),0.5)] text-(--color-font-notice)',
-                            }[request.method] || 'bg-(--hl-md) text-(--color-font)'
-                          }`}
-                        >
-                          {getMethodShortHand(request)}
-                        </span>
-                      )}
-                      {models.webSocketRequest.isWebSocketRequest(request) && (
-                        <span className="flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) bg-[rgba(var(--color-notice-rgb),0.5)] text-[0.65rem] text-(--color-font-notice)">
-                          WS
-                        </span>
-                      )}
-                      {models.grpcRequest.isGrpcRequest(request) && (
-                        <span className="flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) bg-[rgba(var(--color-info-rgb),0.5)] text-[0.65rem] text-(--color-font-info)">
-                          gRPC
-                        </span>
-                      )}
+                      {(isRequest(request) ||
+                        models.webSocketRequest.isWebSocketRequest(request) ||
+                        models.grpcRequest.isGrpcRequest(request)) && <MethodBadge request={request} />}
                       <span>{request.name || request.url || 'Untitled request'}</span>
                       {isSelected && <Icon icon="check" className="justify-self-end text-(--color-success)" />}
                     </Fragment>

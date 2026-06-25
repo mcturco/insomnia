@@ -12,7 +12,7 @@ import {
 } from '../../../routes/organization.$organizationId.project.$projectId.workspace.$workspaceId';
 import { AnalyticsEvent } from '../../analytics';
 import { Icon } from '../icon';
-import { getMethodShortHand } from '../tags/method-tag';
+import { MethodBadge } from '../tags/method-badge';
 
 const { isRequest } = models.request;
 
@@ -101,38 +101,10 @@ export const RequestRow: FC<{
         </div>
       </Checkbox>
       <div className="flex w-full items-center gap-2">
-        {isRequest(request) && (
-          <span
-            className={`flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) text-[0.65rem] ${
-              {
-                GET: 'bg-[rgba(var(--color-surprise-rgb),0.5)] text-(--color-font-surprise)',
-                POST: 'bg-[rgba(var(--color-success-rgb),0.5)] text-(--color-font-success)',
-                HEAD: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-                OPTIONS: 'bg-[rgba(var(--color-info-rgb),0.5)] text-(--color-font-info)',
-                DELETE: 'bg-[rgba(var(--color-danger-rgb),0.5)] text-(--color-font-danger)',
-                PUT: 'bg-[rgba(var(--color-warning-rgb),0.5)] text-(--color-font-warning)',
-                PATCH: 'bg-[rgba(var(--color-notice-rgb),0.5)] text-(--color-font-notice)',
-              }[request.method] || 'bg-(--hl-md) text-(--color-font)'
-            }`}
-          >
-            {getMethodShortHand(request)}
-          </span>
-        )}
-        {models.webSocketRequest.isWebSocketRequest(request) && (
-          <span className="flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) bg-[rgba(var(--color-notice-rgb),0.5)] text-[0.65rem] text-(--color-font-notice)">
-            WS
-          </span>
-        )}
-        {models.grpcRequest.isGrpcRequest(request) && (
-          <span className="flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) bg-[rgba(var(--color-info-rgb),0.5)] text-[0.65rem] text-(--color-font-info)">
-            gRPC
-          </span>
-        )}
-        {models.socketIORequest.isSocketIORequest(request) && (
-          <span className="flex w-10 shrink-0 items-center justify-center rounded-xs border border-solid border-(--hl-sm) bg-[rgba(var(--color-notice-rgb),0.5)] text-[0.65rem] text-(--color-font-notice)">
-            IO
-          </span>
-        )}
+        {(isRequest(request) ||
+          models.webSocketRequest.isWebSocketRequest(request) ||
+          models.grpcRequest.isGrpcRequest(request) ||
+          models.socketIORequest.isSocketIORequest(request)) && <MethodBadge request={request} />}
         <span>{request.name}</span>
       </div>
     </li>
