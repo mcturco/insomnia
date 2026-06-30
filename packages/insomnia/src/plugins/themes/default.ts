@@ -7,13 +7,13 @@ const { gray, green, yellow, red, blue, insomniaPurple, white } = palette;
 // Adjust a color by pointing a role at a different primitive in `palette.ts`.
 const background = {
   default: gray['100'],
-  success: green['40'],
-  notice: yellow['40'],
-  warning: yellow['30'],
-  danger: red['30'],
+  success: green['70'],
+  notice: yellow['70'],
+  warning: yellow['70'],
+  danger: red['70'],
   fix: green['70'],
-  surprise: insomniaPurple['60'],
-  info: blue['40'],
+  surprise: insomniaPurple['70'],
+  info: blue['70'],
   cta: insomniaPurple['50'],
 };
 
@@ -47,9 +47,9 @@ const appColorTokens = `:root {
 \t--method-color-bg-delete: var(--primitive-red-80); --method-color-text-delete: var(--primitive-red-30);
 \t--method-color-bg-head: var(--primitive-gray-30); --method-color-text-head: var(--primitive-gray-70);
 \t--method-color-bg-options: var(--primitive-gray-70); --method-color-text-options: var(--primitive-gray-30);
-\t--method-color-bg-gql: var(--primitive-green-70); --method-color-text-gql: var(--primitive-green-30);
-\t--method-color-bg-ws: var(--primitive-pink-80); --method-color-text-ws: var(--primitive-pink-30);
-\t--method-color-bg-io: var(--primitive-pink-80); --method-color-text-io: var(--primitive-pink-30);
+\t--method-color-bg-gql: var(--primitive-pink-80); --method-color-text-gql: var(--primitive-pink-30);
+\t--method-color-bg-ws: var(--primitive-green-70); --method-color-text-ws: var(--primitive-green-30);
+\t--method-color-bg-io: var(--primitive-aqua-80); --method-color-text-io: var(--primitive-aqua-30);
 \t--method-color-bg-grpc: var(--primitive-purple-90); --method-color-text-grpc: var(--primitive-purple-40);
 \t--method-color-bg-mcp: var(--primitive-purple-90); --method-color-text-mcp: var(--primitive-purple-40);
 
