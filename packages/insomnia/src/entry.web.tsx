@@ -20,17 +20,16 @@ import { startTransition, StrictMode } from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 import { HydratedRouter } from 'react-router/dom';
 
-import { insomniaFetch } from '~/common/insomnia-fetch';
 import { database as clientDatabase } from '~/ui/database.client';
 
-import { applyColorScheme } from './plugins/misc';
+import { applyColorScheme } from './ui/plugins/misc';
 import { HtmlElementWrapper } from './ui/components/html-element-wrapper';
 import { showModal } from './ui/components/modals';
 import { AlertModal } from './ui/components/modals/alert-modal';
 import { PromptModal } from './ui/components/modals/prompt-modal';
 import { WrapperModal } from './ui/components/modals/wrapper-modal';
 import { initializeSentry } from './ui/sentry';
-import { getInitialEntry } from './utils/router';
+import { getInitialEntry } from './ui/utils/router';
 import { createInMemoryDatabase } from './web-shim/database-memory';
 import { MOCK_ACCOUNT_ID, MOCK_ORG_ID, seedMockData } from './web-shim/mock-data';
 import { PasscodeGate } from './web-shim/passcode-gate';
@@ -93,10 +92,10 @@ initServices({
   ...servicesNodeImpl,
   organization: {
     list: async () => {
-      return JSON.parse(window.localStorage.getItem(`${MOCK_ACCOUNT_ID}:organizations`) ?? '[]');
+      return JSON.parse(window.localStorage.getItem(`${MOCK_ACCOUNT_ID}:spaces`) ?? '[]');
     },
     get: async (id: string) => {
-      const orgs = JSON.parse(window.localStorage.getItem(`${MOCK_ACCOUNT_ID}:organizations`) ?? '[]');
+      const orgs = JSON.parse(window.localStorage.getItem(`${MOCK_ACCOUNT_ID}:spaces`) ?? '[]');
       return orgs.find((o: { id: string }) => o.id === id);
     },
   },
@@ -146,8 +145,8 @@ const mockPlan = {
   trialingEnd: '',
 };
 
-if (!window.localStorage.getItem(`${MOCK_ACCOUNT_ID}:organizations`)) {
-  window.localStorage.setItem(`${MOCK_ACCOUNT_ID}:organizations`, JSON.stringify([mockOrg]));
+if (!window.localStorage.getItem(`${MOCK_ACCOUNT_ID}:spaces`)) {
+  window.localStorage.setItem(`${MOCK_ACCOUNT_ID}:spaces`, JSON.stringify([mockOrg]));
 }
 if (!window.localStorage.getItem(`${MOCK_ACCOUNT_ID}:user`)) {
   window.localStorage.setItem(`${MOCK_ACCOUNT_ID}:user`, JSON.stringify(mockUser));
@@ -159,7 +158,17 @@ if (!window.localStorage.getItem(`${MOCK_ACCOUNT_ID}:currentPlan`)) {
 // ─── 7. Rest of the app bootstrap (mirrors entry.client.tsx) ─────────────────
 initializeSentry();
 
-configureFetch(options => insomniaFetch({ ...options, onDeepLink: (uri: string) => window.main.openDeepLink(uri) }));
+// Prototype runs fully offline: the real Insomnia/Kong cloud APIs
+// (api.insomnia.rest, ai-helper.insomnia.rest, api.konghq.com) are never called.
+// Every backend request throws — mirroring a network failure — which the app's
+// loaders already tolerate: e.g. syncOrganizations() catches the error and falls
+// back to the localStorage values seeded above. This guarantees zero real API
+// traffic. Swap this back to `insomniaFetch` only if the prototype ever needs a
+// live backend.
+configureFetch(async ({ method, path }) => {
+  console.warn(`[web-prototype] blocked backend request: ${method} ${path}`);
+  throw new Error('[web-prototype] backend API is disabled in the web prototype');
+});
 
 try {
   window.showAlert = options => showModal(AlertModal, options);

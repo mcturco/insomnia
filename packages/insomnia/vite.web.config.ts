@@ -165,6 +165,11 @@ export default defineConfig(({ mode }) => {
         load(id: string): string | null {
           const clean = id.split('?')[0];
           if (clean === electronEntryPath || clean.endsWith('/entry.client.tsx')) {
+            // entry.web.tsx's contents are served under the entry.client.tsx id, so
+            // it isn't in Vite's module graph and edits to it wouldn't otherwise
+            // invalidate this module. Register it as a watch dependency so saving
+            // entry.web.tsx reloads the dev server instead of serving stale code.
+            this.addWatchFile(webEntryPath);
             return fs.readFileSync(webEntryPath, 'utf-8');
           }
           return null;
