@@ -2,16 +2,16 @@ import { services } from 'insomnia-data';
 import { href } from 'react-router';
 
 import { database } from '~/common/database';
+import { invariant } from '~/common/utils/invariant';
 import { reparentSyncDelta } from '~/ui/sync-utils';
-import { invariant } from '~/utils/invariant';
-import { createFetcherSubmitHook } from '~/utils/router';
+import { createFetcherSubmitHook } from '~/ui/utils/router';
 
 import type { Route } from './+types/organization.$organizationId.project.$projectId.workspace.$workspaceId.insomnia-sync.fetch';
 
 export async function clientAction({ request, params }: Route.ClientActionArgs) {
   const { projectId } = params;
 
-  const project = await services.project.get(projectId);
+  const project = await services.project.getById(projectId);
   invariant(project, 'Project not found');
 
   const formData = await request.formData();

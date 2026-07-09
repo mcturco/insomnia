@@ -2,7 +2,7 @@ import { type Billing, type FeatureList, getOrganizationFeatures, type Organizat
 import { models, services } from 'insomnia-data';
 import { href, redirect, type ShouldRevalidateFunctionArgs } from 'react-router';
 
-import { createFetcherLoadHook } from '~/utils/router';
+import { createFetcherLoadHook } from '~/ui/utils/router';
 
 import type { Route } from './+types/organization.$organizationId.permissions';
 
@@ -35,7 +35,7 @@ export async function clientLoader({ params }: Route.ClientLoaderArgs) {
     };
   }
 
-  const organizations = JSON.parse(localStorage.getItem(`${accountId}:organizations`) || '[]') as Organization[];
+  const organizations = JSON.parse(localStorage.getItem(`${accountId}:spaces`) || '[]') as Organization[];
   const organization = organizations.find(o => o.id === organizationId);
 
   if (!organization) {

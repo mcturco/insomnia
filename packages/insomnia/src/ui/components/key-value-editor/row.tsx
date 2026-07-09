@@ -2,8 +2,8 @@ import classnames from 'classnames';
 import React, { type FC } from 'react';
 import { Button } from 'react-aria-components';
 
+import { utf8ByteLength } from '~/common/utils/utf8-bytes';
 import { OneLineEditor } from '~/ui/components/.client/codemirror/one-line-editor';
-import { utf8ByteLength } from '~/utils/utf8-bytes';
 
 import { describeByteSize } from '../../../common/misc';
 import { Dropdown, DropdownItem, ItemContent } from '../base/dropdown';
@@ -91,6 +91,7 @@ export const Row: FC<Props> = ({
         >
           <OneLineEditor
             id={'key-value-editor__name' + pair.id}
+            uniquenessKey={'key-value-editor__name' + pair.id}
             placeholder={namePlaceholder || 'Name'}
             defaultValue={pair.name}
             getAutocompleteConstants={() => handleGetAutocompleteNameConstants?.(pair) || []}
@@ -132,6 +133,7 @@ export const Row: FC<Props> = ({
           ) : (
             <OneLineEditor
               id={'key-value-editor__value' + pair.id}
+              uniquenessKey={'key-value-editor__value' + pair.id}
               onBlur={onBlur}
               type="text"
               readOnly={readOnly}
@@ -150,6 +152,7 @@ export const Row: FC<Props> = ({
           >
             <OneLineEditor
               id={'key-value-editor__description' + pair.id}
+              uniquenessKey={'key-value-editor__description' + pair.id}
               readOnly={readOnly}
               placeholder={descriptionPlaceholder || 'Description'}
               defaultValue={pair.description || ''}

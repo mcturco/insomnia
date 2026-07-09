@@ -23,11 +23,8 @@ import {
 } from 'react-router';
 import { useLatest } from 'react-use';
 
-import { isLoggedIn } from '~/account/session';
 import { EXTERNAL_VAULT_PLUGIN_NAME, isDevelopment } from '~/common/constants';
-import { createPlugin } from '~/plugins/create';
-import { setTheme } from '~/plugins/misc';
-import { plugins } from '~/plugins/renderer-bridge';
+import { parseDeepLinkUrl as parseImportDeepLinkUrl, resolveImportDeepLink } from '~/common/import-deep-link';
 import { useAuthorizeActionFetcher } from '~/routes/auth.authorize';
 import { useDefaultBrowserRedirectActionFetcher } from '~/routes/auth.default-browser-redirect';
 import { useLogoutFetcher } from '~/routes/auth.logout';
@@ -36,6 +33,8 @@ import {
   GIT_PROVIDER_COMPLETE_SIGN_IN_FETCHER_KEY,
   useGitProviderCompleteSignInFetcher,
 } from '~/routes/git-credentials.complete-sign-in';
+import { useProjectNewActionFetcher } from '~/routes/organization.$organizationId.project.new';
+import { isLoggedIn } from '~/ui/account/session';
 import { AnalyticsEvent, PENDING_IMPORT_ATTRIBUTION_KEY, trackImportEvent } from '~/ui/analytics';
 import { getLoginUrl } from '~/ui/auth-session-provider.client';
 import { CopyButton } from '~/ui/components/base/copy-button';
@@ -50,6 +49,10 @@ import { showToast, Toaster } from '~/ui/components/toast-notification';
 import { AppHooks } from '~/ui/containers/app-hooks';
 import cssHref from '~/ui/css/styles.css?url';
 import Modals from '~/ui/modals';
+import { createPlugin } from '~/ui/plugins/create';
+import { setTheme } from '~/ui/plugins/misc';
+import { plugins } from '~/ui/plugins/renderer-bridge';
+import { confirmOpenFolderTrust } from '~/ui/utils/git-folder-trust';
 
 import type { Route } from './+types/root';
 
@@ -82,37 +85,9 @@ const locationHistoryMiddleware: Route.ClientMiddlewareFunction = async ({ reque
     console.log('[locationHistoryMiddleware] Failed to store location history entry', err);
   }
 };
-const sanitizeUrlAndExtractOrigin = (url: string) => {
-  try {
-    const parsed = new URL(url);
-    return parsed.origin;
-  } catch {
-    return '';
-  }
-};
 export const clientMiddleware: Route.ClientMiddlewareFunction[] = [locationHistoryMiddleware];
 
-// Shared URL-parsing utility used by both useAuthDeepLinkHandler and Root's
-// full deep-link handler to avoid duplicating the try/catch and dev-protocol
-// normalisation logic.
-const parseDeepLinkUrl = (url: string) => {
-  // Get the url without params
-  let parsedUrl;
-  try {
-    parsedUrl = new URL(url);
-  } catch {
-    console.log('[deep-link] Invalid args, expected insomnia://x/y/z', url);
-    return;
-  }
-  let urlWithoutParams = url.slice(0, Math.max(0, url.indexOf('?'))) || url;
-  const params = Object.fromEntries(parsedUrl.searchParams);
-
-  // Change protocol for dev redirects to match switch case
-  if (isDevelopment()) {
-    urlWithoutParams = urlWithoutParams.replace('insomniadev://', 'insomnia://');
-  }
-  return { urlWithoutParams, params };
-};
+const parseDeepLinkUrl = (url: string) => parseImportDeepLinkUrl(url, isDevelopment());
 
 // Handles the auth/logout deep-link (insomnia://app/auth/login) independently
 // of the Root component so that it continues to work even when Root is replaced
@@ -383,6 +358,10 @@ const Root = () => {
   useAuthDeepLinkHandler();
 
   const { revalidate } = useRevalidator();
+  // Used to adopt a folder opened from the OS — going through the project-creation
+  // action (not a raw IPC) so React Router revalidates loaders afterwards.
+  const openFolderFetcher = useProjectNewActionFetcher();
+  const { submit: openFolderSubmit } = openFolderFetcher;
   const inflightFetchers = useFetchers();
   const ifInSubmission = inflightFetchers.some(f => f.formMethod === 'POST');
   const latestInSubmission = useLatest(ifInSubmission);
@@ -426,6 +405,45 @@ const Root = () => {
           message: params.message,
         });
       }
+      // Open a local folder as a Git project (from the OS: Finder "Open With",
+      // `insomnia /path/to/folder`, or this deep link). The main process has
+      // already verified the path is an existing directory
+      if (urlWithoutParams === 'insomnia://app/open-folder') {
+        const folderPath = params.path;
+        if (!folderPath) {
+          return;
+        }
+        const userSession = await services.userSession.get();
+        if (!userSession.id) {
+          window.sessionStorage.setItem('pendingDeepLinkAfterAuthorize', url);
+          window.localStorage.setItem('logoutMessage', 'Please log in to open a folder in Insomnia.');
+          return navigate(href('/auth/login'));
+        }
+        // Create the project in the currently active org, falling back to the
+        // last-visited org (the running app always has one).
+        const targetOrg =
+          organizationId && organizationId !== models.organization.SCRATCHPAD_ORGANIZATION_ID
+            ? organizationId
+            : window.localStorage.getItem('lastVisitedOrganizationId') || '';
+        if (!targetOrg) {
+          return navigate(href('/organization'));
+        }
+        // Opening a folder from the OS adopts whatever it contains — confirm trust first.
+        if (!(await confirmOpenFolderTrust(folderPath))) {
+          return;
+        }
+        // Go through the project-creation action (not a raw IPC) so React Router
+        // revalidates loaders and the sidebar/project list update; the action's
+        // redirect navigates to the new project.
+        return openFolderSubmit({
+          organizationId: targetOrg,
+          projectData: {
+            name: window.path.basename(folderPath) || 'New Git Project',
+            storageType: 'git',
+            openExistingDirectory: folderPath,
+          },
+        });
+      }
       // Supports params: uri, curl, origin
       if (urlWithoutParams === 'insomnia://app/import') {
         // Clean up the flag set during deep-link replay so it never leaks
@@ -450,38 +468,17 @@ const Root = () => {
         }
         trackImportEvent(AnalyticsEvent.importStarted, { source: 'import-url' });
 
-        if (params.uri) {
-          return setImportObject({
-            type: 'uri',
-            defaultValue: params.uri,
-            origin: sanitizeUrlAndExtractOrigin(params.origin),
-            endpoint: params.endpoint,
-            operationId: params.operationId,
-            autoScan: true,
-            startedAt: Date.now(),
-          });
+        const resource = resolveImportDeepLink(params);
+        if (!resource) {
+          return;
         }
-        if (params.mcp) {
-          return setImportObject({
-            type: 'mcp',
-            defaultValue: params.mcp,
-            origin: sanitizeUrlAndExtractOrigin(params.origin),
-            autoScan: true,
-            startedAt: Date.now(),
-          });
-        }
-        if (params.curl) {
-          const { isValid } = await validateCurl(params.curl);
-          return setImportObject({
-            type: 'curl',
-            defaultValue: params.curl,
-            origin: sanitizeUrlAndExtractOrigin(params.origin),
-            endpoint: params.endpoint,
-            operationId: params.operationId,
-            autoScan: isValid,
-            startedAt: Date.now(),
-          });
-        }
+        // Only cURL gates auto-scan on async validation
+        const autoScan = resource.type === 'curl' ? (await validateCurl(resource.defaultValue)).isValid : true;
+        return setImportObject({
+          ...resource,
+          autoScan,
+          startedAt: Date.now(),
+        });
       }
       if (urlWithoutParams === 'insomnia://plugins/install') {
         if (!params.name || params.name.trim() === '') {
@@ -678,10 +675,19 @@ const Root = () => {
     createCloudCredentials,
     gitProviderCompleteSignInSubmit,
     navigate,
+    openFolderSubmit,
     organizationId,
     projectId,
     redirectToDefaultBrowserSubmit,
   ]);
+
+  // Surface failures from adopting an OS-opened folder (e.g. unreadable folder or
+  // a collision with an existing project).
+  useEffect(() => {
+    if (openFolderFetcher.state === 'idle' && openFolderFetcher.data?.error) {
+      showModal(AlertModal, { title: 'Could not open folder', message: openFolderFetcher.data.error });
+    }
+  }, [openFolderFetcher.data, openFolderFetcher.state]);
 
   // Replay a deep link that was queued before login (e.g. insomnia://app/import
   // clicked while signed out).  We wait for organizationId so that the full

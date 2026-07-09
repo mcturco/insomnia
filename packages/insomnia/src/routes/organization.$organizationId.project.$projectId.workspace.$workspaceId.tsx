@@ -33,7 +33,7 @@ import { pushSnapshotOnInitialize } from '~/sync/vcs/initialize-backend-project'
 import { Icon } from '~/ui/components/icon';
 import { showResourceNotFoundToast } from '~/ui/components/toast-notification';
 import { useGitFileIssues } from '~/ui/hooks/use-git-file-issues';
-import { createFetcherLoadHook } from '~/utils/router';
+import { createFetcherLoadHook } from '~/ui/utils/router';
 
 import type { Route } from './+types/organization.$organizationId.project.$projectId.workspace.$workspaceId';
 
@@ -88,7 +88,7 @@ const workspaceFileIssueModalText = {
 export async function clientLoader({ params, request }: Route.ClientLoaderArgs) {
   const { organizationId, projectId, workspaceId } = params;
 
-  const activeProject = await services.project.get(projectId);
+  const activeProject = await services.project.getById(projectId);
   if (!activeProject) {
     showResourceNotFoundToast(`Project not found: ${projectId}`);
     throw redirect(href('/organization/:organizationId/project', { organizationId }));
@@ -105,26 +105,26 @@ export async function clientLoader({ params, request }: Route.ClientLoaderArgs) 
   const gitRepositoryId = models.project.isConnectedGitProject(activeProject)
     ? models.project.getEffectiveRepoId(activeProject)
     : activeWorkspaceMeta.gitRepositoryId;
-  const gitRepository = await services.gitRepository.getById(gitRepositoryId || '');
+  const gitRepository = gitRepositoryId ? await services.gitRepository.getById(gitRepositoryId) : undefined;
 
   const baseEnvironment = await services.environment.getOrCreateForParentId(workspaceId);
 
-  const subEnvironments = (await services.environment.findByParentId(baseEnvironment._id)).sort(
+  const subEnvironments = (await services.environment.listByParentId(baseEnvironment._id)).sort(
     (e1, e2) => e1.metaSortKey - e2.metaSortKey,
   );
 
-  const globalEnvironmentWorkspaces = await database.find<Workspace>(models.workspace.type, {
+  const globalEnvironmentWorkspaces = await services.workspace.list({
     parentId: projectId,
     scope: 'environment',
   });
 
-  const globalBaseEnvironments = await database.find<Environment>(models.environment.type, {
+  const globalBaseEnvironments = await services.environment.list({
     parentId: {
       $in: globalEnvironmentWorkspaces.map(w => w._id),
     },
   });
 
-  const globalSubEnvironments = await database.find<Environment>(models.environment.type, {
+  const globalSubEnvironments = await services.environment.list({
     parentId: {
       $in: globalBaseEnvironments.map(e => e._id),
     },
@@ -139,13 +139,11 @@ export async function clientLoader({ params, request }: Route.ClientLoaderArgs) 
   });
 
   const activeEnvironment =
-    (await database.findOne<Environment>(models.environment.type, {
-      _id: activeWorkspaceMeta.activeEnvironmentId,
-    })) || baseEnvironment;
+    (await services.environment.getById(activeWorkspaceMeta.activeEnvironmentId || '')) || baseEnvironment;
 
-  const activeGlobalEnvironment = await database.findOne<Environment>(models.environment.type, {
-    _id: activeWorkspaceMeta.activeGlobalEnvironmentId,
-  });
+  const activeGlobalEnvironment = await services.environment.getById(
+    activeWorkspaceMeta.activeGlobalEnvironmentId || '',
+  );
 
   const activeCookieJar = await services.cookieJar.getOrCreateForParentId(workspaceId);
 
@@ -153,10 +151,7 @@ export async function clientLoader({ params, request }: Route.ClientLoaderArgs) 
   const clientCertificates = await services.clientCertificate.findByParentId(workspaceId);
   const activeMockServer = await services.mockServer.getByParentId(workspaceId);
 
-  const organizationProjects =
-    (await database.find<Project>(models.project.type, {
-      parentId: organizationId,
-    })) || [];
+  const organizationProjects = await services.project.listByOrganizationIds(organizationId);
 
   const projects = models.project.sortProjects(organizationProjects);
 
@@ -296,7 +291,7 @@ export async function clientLoader({ params, request }: Route.ClientLoaderArgs) 
     }
   }
 
-  const workspaces = await services.workspace.findByParentId(projectId);
+  const workspaces = await services.workspace.listByParentId(projectId);
 
   const collection = flattenTree();
 

@@ -45,6 +45,7 @@ export type KeyboardShortcut =
   | 'request_focusUrl'
   | 'request_showGenerateCodeEditor'
   | 'sidebar_focusFilter'
+  | 'sidebar_showCreateDropdown'
   | 'sidebar_toggle'
   | 'response_focus'
   | 'showCookiesEditor'
@@ -129,6 +130,7 @@ export interface Settings {
   fontVariantLigatures: boolean;
   forceVerticalLayout: boolean;
   hasKonnectPat: boolean;
+  konnectOrganizationId: string | null;
   hotKeyRegistry: HotKeyRegistry;
   httpProxy: string;
   httpsProxy: string;
@@ -164,6 +166,8 @@ export interface Settings {
   scriptSandboxEnabled: boolean;
   // Wraps the user script in 'use strict', preventing accidental globals and making `this` undefined.
   scriptStrictModeEnabled: boolean;
+  // Experimental: execute plugin template tags inside the QuickJS-WASM sandbox instead of directly in the main process.
+  templateTagSandboxEnabled: boolean;
   // Names of security rules that have been individually disabled.
   disabledSecurityRules: string[];
   // AST blocked-property names that have been individually disabled.

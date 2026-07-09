@@ -20,9 +20,10 @@ vi.mock('insomnia-data', () => ({
   },
 }));
 
+import type { Plugin } from '~/common/plugins/types';
+
 import { _testOnlySetPlugins } from '../index';
 import { invokePluginMethod } from '../invoke-method';
-import type { Plugin } from '../types';
 
 const makePlugin = (overrides: Partial<Plugin> = {}): Plugin => ({
   name: 'test-plugin',
@@ -30,6 +31,9 @@ const makePlugin = (overrides: Partial<Plugin> = {}): Plugin => ({
   version: '1.0.0',
   directory: '/plugins/test-plugin',
   config: { disabled: false },
+  permissions: { modules: [], capabilities: [] },
+  permissionWarnings: [],
+  permissionsDeclared: false,
   module: {},
   ...overrides,
 });

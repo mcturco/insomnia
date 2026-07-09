@@ -32,13 +32,15 @@ import * as reactUse from 'react-use';
 import { Button as BasicButton } from '~/basic-components/button';
 import type { SortOrder } from '~/common/constants';
 import { fuzzyMatchAll } from '~/common/misc';
-import { getAllRemoteBackendProjectsOfOrg, getUnsyncedRemoteWorkspaces, type InsomniaFile } from '~/common/project';
+import { getUnsyncedRemoteWorkspaces, type InsomniaFile } from '~/common/project';
 import { sortMethodMap } from '~/common/sorting';
 import type { SyncResult } from '~/konnect/sync';
 import { useRootLoaderData } from '~/root';
 import { useProjectLoaderData } from '~/routes/organization.$organizationId.project.$projectId';
 import { AnalyticsEvent } from '~/ui/analytics';
 import type { WorkspaceSortOrder } from '~/ui/components/dropdowns/sidebar-project-dropdown';
+import { SidebarShortcutActionsDropdown } from '~/ui/components/dropdowns/sidebar-shortcut-actions-dropdown';
+import { useDocBodyKeyboardShortcuts } from '~/ui/components/keydown-binder';
 import { KongLogo } from '~/ui/components/kong-logo';
 import { showModal } from '~/ui/components/modals';
 import { AskModal } from '~/ui/components/modals/ask-modal';
@@ -55,6 +57,7 @@ import { useLoaderDeferData } from '~/ui/hooks/use-loader-defer-data';
 import { useOrganizationPermissions } from '~/ui/hooks/use-organization-features';
 import insomniaLogo from '~/ui/images/insomnia-logo.svg';
 import { isPrimaryClickModifier } from '~/ui/utils';
+import { getAllRemoteBackendProjectsOfOrg } from '~/ui/utils/remote-projects';
 
 import { Icon } from '../../icon';
 import {
@@ -63,6 +66,7 @@ import {
   flattenCollectionChildren,
   getAllRequestsAndMetaByWorkspace,
   getWorkspacesByProjectIds,
+  type WorkspaceWithSyncStatus,
 } from './project-navigation-sidebar-utils';
 import { ProjectNode } from './project-node';
 import { PinnedHeaderNode, RequestNode } from './request-node';
@@ -87,9 +91,7 @@ export interface ProjectNavigationSidebarHandle {
 export type ProjectNavigationSidebarTabId = 'projects' | 'konnect';
 
 function LastSyncedLabel({ lastSyncedAt }: { lastSyncedAt: number | null }) {
-  return lastSyncedAt
-    ? `Last synced: ${getRelativeTimeString(lastSyncedAt, Date.now())}`
-    : 'Not yet synced';
+  return lastSyncedAt ? `Last synced: ${getRelativeTimeString(lastSyncedAt, Date.now())}` : 'Not yet synced';
 }
 
 function getRelativeTimeString(timestamp: number, now: number = Date.now()): string {
@@ -245,16 +247,41 @@ const ProjectNavigationSidebarInner = (
   const nonKonnectProjects = projects.filter(p => !p.konnectControlPlaneId);
   const konnectProjects = projects.filter(p => p.konnectControlPlaneId != null);
   const [filterInputValue, setFilterInputValue] = useState(projectNavigationSidebarFilter || '');
+  const [konnectFilterInputValue, setKonnectFilterInputValue] = useState(konnectFilter || '');
+
+  useEffect(() => {
+    // Keep input state aligned with storage only when organization context switches.
+    // Read directly from localStorage to bypass react-use's stale state on key change.
+    const readLocalStorageString = (key: string): string => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw == null) {
+          return '';
+        }
+        const parsed: unknown = JSON.parse(raw);
+        return typeof parsed === 'string' ? parsed : '';
+      } catch {
+        return '';
+      }
+    };
+    setFilterInputValue(readLocalStorageString(`${organizationId}:project-navigation-sidebar-filter`));
+    setKonnectFilterInputValue(readLocalStorageString(`${organizationId}:project-navigation-konnect-filter`));
+  }, [organizationId]);
+
   // Debounce update filter
   reactUse.useDebounce(() => setProjectNavigationSidebarFilter(filterInputValue), 300, [filterInputValue]);
+  reactUse.useDebounce(() => setKonnectFilter(konnectFilterInputValue), 300, [konnectFilterInputValue]);
+  const activeFilter = ((isProjectTabActive ? projectNavigationSidebarFilter : konnectFilter) || '').trim();
   // ref to cache queried workspaces by project id
-  const cachedWorkspacesRef = useRef<Map<string, Workspace[]>>(new Map());
+  const cachedWorkspacesRef = useRef<Map<string, WorkspaceWithSyncStatus[]>>(new Map());
   // ref to cache queried collection children (request & requestGroups) data and meta by workspace id
   const cachedCollectionChildrenAndMetaRef = useRef<Map<string, AllRequestsAndMetaInWorkspace>>(new Map());
   // ref to track whether we are currently fetching unsynced files for cloud sync projects to avoid duplicate requests
   const isFetchingUnsyncedFilesRef = useRef(false);
 
-  const syncKonnectProjectsAndNotifyRef = useRef<() => Promise<void>>(async () => {});
+  const syncKonnectProjectsAndNotifyRef = useRef<(konnectOrganizationId?: string | null) => Promise<void>>(
+    async () => {},
+  );
 
   const isScratchPad = activeProjectId === models.project.SCRATCHPAD_PROJECT_ID;
 
@@ -309,7 +336,7 @@ const ProjectNavigationSidebarInner = (
     // set up a map of remoteId to projectId for all cloud sync projects.
     const remoteIdToProjectIdMap = new Map<string, string>();
     for (const projectId of cloudSyncProjectIds) {
-      const project = await services.project.get(projectId);
+      const project = await services.project.getById(projectId);
       if (project && 'remoteId' in project && project.remoteId) {
         remoteIdToProjectIdMap.set(project.remoteId, projectId);
       }
@@ -351,22 +378,26 @@ const ProjectNavigationSidebarInner = (
     return setUnsyncedFilesByProjectId(result);
   }, [organizationId, cloudSyncProjectIdsKey]);
 
-  const syncKonnectProjectsAndNotify = async () => {
+  const syncKonnectProjectsAndNotify = async (konnectOrganizationId?: string | null) => {
+    setLastSyncResult(null);
     const isFirstSync = lastSyncedAt == null;
-    const result = await startSync(organizationId);
+    const result = await startSync(
+      organizationId,
+      konnectOrganizationId !== undefined ? konnectOrganizationId : settings.konnectOrganizationId,
+    );
     setLastSyncResult(result ?? null);
     setShowSyncDetails(false);
     setCopiedReason(null);
     if (result?.success) {
       setLastSyncedAt(Date.now());
       // Navigate to and expand the first Konnect project after a successful sync
-      const allProjects = await services.project.list({ organizationId });
+      const allProjects = await services.project.listByOrganizationIds(organizationId);
       const sortedKonnectProjects = models.project.sortProjects(
         allProjects.filter(p => p.konnectControlPlaneId != null),
       );
       const firstKonnectProject = sortedKonnectProjects[0];
       if (firstKonnectProject) {
-        const workspaces = await services.workspace.findByParentId(firstKonnectProject._id);
+        const workspaces = await services.workspace.listByParentId(firstKonnectProject._id);
         const envWorkspace = workspaces.find(w => w.scope === 'environment');
         if (envWorkspace) {
           // Show environment onboarding after first successful sync
@@ -444,12 +475,15 @@ const ProjectNavigationSidebarInner = (
   };
 
   useEffect(() => {
-    if (projectNavigationSidebarFilter) {
+    if (projectNavigationSidebarFilter || konnectFilter) {
       window.main.trackAnalyticsEvent({
         event: AnalyticsEvent.projectListFiltered,
+        properties: {
+          project_id: activeProjectId,
+        },
       });
     }
-  }, [projectNavigationSidebarFilter]);
+  }, [projectNavigationSidebarFilter, konnectFilter, activeProjectId]);
 
   useEffect(() => {
     getAllRemoteFilesByProjectId();
@@ -489,9 +523,12 @@ const ProjectNavigationSidebarInner = (
       return cachedCollectionChildrenAndMetaRef.current;
     };
 
+    let cancelled = false;
+
     const buildWorkspaceAndCollectionData = async () => {
       const items: FlatItem[] = [];
       // Array of project and collection workspace ids that should get data from db
+      const activeFilterLower = activeFilter.toLowerCase();
 
       const projectIds = projectsWithPresence.map(p => p._id);
       const collectionWorkspaceIds: string[] = [];
@@ -502,7 +539,7 @@ const ProjectNavigationSidebarInner = (
           if (
             wk.scope === 'collection' &&
             // Fetch collection children and meta if 1) the workspace is expanded or 2) there is an active filter
-            (!!projectNavigationSidebarFilter || (expandedProjectAndWorkspaceIds || []).includes(wk._id))
+            (!!activeFilter || (expandedProjectAndWorkspaceIds || []).includes(wk._id))
           ) {
             collectionWorkspaceIds.push(wk._id);
           }
@@ -544,7 +581,7 @@ const ProjectNavigationSidebarInner = (
           : [];
         const allWorkspaces = [...sortedWorkspaces, ...unsyncedWorkspaces];
         // If there is no workspace under the project, show an empty workspace if no active filter
-        if (allWorkspaces.length === 0 && !projectNavigationSidebarFilter) {
+        if (allWorkspaces.length === 0 && !activeFilter) {
           items.push({
             kind: 'emptyProject',
             organizationId,
@@ -556,6 +593,15 @@ const ProjectNavigationSidebarInner = (
 
         for (const workspace of allWorkspaces) {
           if (workspace.scope === 'unsynced') {
+            // When a filter is active, show the unsynced workspace only if its name matches the filter.
+            const unsyncedWorkspaceMatchesFilter =
+              !activeFilter ||
+              Boolean(
+                fuzzyMatchAll(activeFilterLower, [workspace.name?.toLowerCase() || ''], {
+                  splitSpace: true,
+                  loose: true,
+                })?.indexes,
+              );
             items.push({
               kind: 'unsyncedWorkspace',
               organizationId,
@@ -566,30 +612,35 @@ const ProjectNavigationSidebarInner = (
                 ...workspace,
               },
               collapsed: false,
-              hidden: isProjectCollapsed,
+              hidden: activeFilter ? !unsyncedWorkspaceMatchesFilter : isProjectCollapsed,
             });
           } else {
-            const { scope, _id: workspaceId } = workspace as Workspace;
+            const workspaceWithSyncStatus = workspace as WorkspaceWithSyncStatus;
+            const { scope, _id: workspaceId } = workspaceWithSyncStatus;
             const isCollection = scope === 'collection';
             // Only collection workspace has nested children
             const isWorkspaceCollapsed = !(
               isCollection && (expandedProjectAndWorkspaceIds ?? []).includes(workspaceId)
             );
+            // Change indicators apply to git and cloud (remote) projects only
+            const showSyncStatus = models.project.isRemoteProject(project) || models.project.isGitProject(project);
 
             items.push({
               kind: 'workspace',
               organizationId,
               project: project,
-              doc: workspace as Workspace,
+              doc: workspaceWithSyncStatus,
               collapsed: isWorkspaceCollapsed,
               hidden: isProjectCollapsed,
+              hasUncommittedChanges: showSyncStatus ? workspaceWithSyncStatus.hasUncommittedChanges : false,
+              hasUnpushedChanges: showSyncStatus ? workspaceWithSyncStatus.hasUnpushedChanges : false,
             });
 
             const allRequestsAndMetaInWorkspace = collectionChildrenAndMetaByWorkspaceId.get(workspaceId);
             // build collection children if it's a collection workspace and parent workspace and project are not collapsed or there is an active filter
             const shouldHideCollectionChildren = isWorkspaceCollapsed || isProjectCollapsed;
             let collectionChildren =
-              (!shouldHideCollectionChildren || !!projectNavigationSidebarFilter) && allRequestsAndMetaInWorkspace
+              (!shouldHideCollectionChildren || !!activeFilter) && allRequestsAndMetaInWorkspace
                 ? flattenCollectionChildren(
                     workspaceId,
                     shouldHideCollectionChildren,
@@ -598,13 +649,13 @@ const ProjectNavigationSidebarInner = (
                   )
                 : [];
 
-            if (projectNavigationSidebarFilter) {
+            if (activeFilter) {
               // apply filter to collection children first
-              collectionChildren = filterCollection(collectionChildren, projectNavigationSidebarFilter);
+              collectionChildren = filterCollection(collectionChildren, activeFilter);
               const collectionChildMatchesFilter = collectionChildren.some(child => !child.hidden);
               const workspaceMatchesFilter = Boolean(
                 fuzzyMatchAll(
-                  projectNavigationSidebarFilter.toLowerCase(),
+                  activeFilterLower,
                   // Todo: support remote files (cloud sync) in filter
                   [workspace.name?.toLowerCase() || ''],
                   { splitSpace: true, loose: true },
@@ -618,9 +669,7 @@ const ProjectNavigationSidebarInner = (
             const pinnedCollectionChildren = shouldHideCollectionChildren
               ? []
               : // Filter out pinned requests by pinned attribute. Besides, when there is an active filter, also filter out un-matched requests.
-                collectionChildren.filter(
-                  child => child.pinned && !(projectNavigationSidebarFilter ? child.hidden : false),
-                );
+                collectionChildren.filter(child => child.pinned && !(activeFilter ? child.hidden : false));
 
             if (pinnedCollectionChildren.length > 0) {
               items.push({
@@ -665,7 +714,7 @@ const ProjectNavigationSidebarInner = (
               if (
                 models.requestGroup.isRequestGroupId(child.doc._id) &&
                 child.children?.length === 0 &&
-                !projectNavigationSidebarFilter
+                !activeFilter
               ) {
                 // If there is a request group with no children, add an empty folder node
                 items.push({
@@ -681,7 +730,7 @@ const ProjectNavigationSidebarInner = (
               }
             });
 
-            if (collectionChildren.length === 0 && !shouldHideCollectionChildren && !projectNavigationSidebarFilter) {
+            if (collectionChildren.length === 0 && !shouldHideCollectionChildren && !activeFilter) {
               items.push({
                 kind: 'emptyCollection',
                 organizationId,
@@ -695,12 +744,10 @@ const ProjectNavigationSidebarInner = (
         }
 
         // If project or any of its descendant workspace/collection child matches the filter, show the project; otherwise hide
-        if (projectNavigationSidebarFilter) {
-          const projectMatchesFilter = project.name
-            ?.toLowerCase()
-            .includes(projectNavigationSidebarFilter.toLowerCase());
+        if (activeFilter) {
+          const projectMatchesFilter = project.name?.toLowerCase().includes(activeFilterLower);
           const hasVisibleWorkspace = items.some(
-            i => i.kind === 'workspace' && i.project._id === projectId && !i.hidden,
+            i => (i.kind === 'workspace' || i.kind === 'unsyncedWorkspace') && i.project._id === projectId && !i.hidden,
           );
           const shouldHideProject = !projectMatchesFilter && !hasVisibleWorkspace;
           items.find(i => i.kind === 'project' && i.doc._id === projectId)!.hidden = shouldHideProject;
@@ -708,7 +755,7 @@ const ProjectNavigationSidebarInner = (
       }
 
       // If there is an active filter, expand all items to show matched results and their ancestors
-      if (projectNavigationSidebarFilter) {
+      if (activeFilter) {
         items.forEach(item => {
           if ('collapsed' in item) {
             item.collapsed = false;
@@ -716,17 +763,27 @@ const ProjectNavigationSidebarInner = (
         });
       }
 
+      // Bail out if a newer effect run has superseded this one to avoid
+      // a stale async build overwriting fresh data (race condition).
+      if (cancelled) {
+        return;
+      }
+
       setFlatItems(items);
     };
     buildWorkspaceAndCollectionData();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
+    activeFilter,
     collectionSortOrders,
     projectWorkspaceSortOrder,
     expandedProjectAndWorkspaceIds,
     isProjectTabActive,
     localWorkspaceOrders,
     organizationId,
-    projectNavigationSidebarFilter,
     projectsWithPresence,
     unsyncedFilesByProjectId,
   ]);
@@ -776,7 +833,7 @@ const ProjectNavigationSidebarInner = (
   const toggleProjectOrWorkspace = useCallback(
     (projectOrWorkspaceId: string) => {
       // Do not update toggle state if there is an active filter
-      if (!projectNavigationSidebarFilter) {
+      if (!activeFilter) {
         const expandedIds = expandedProjectAndWorkspaceIds || [];
         const isExpanded = expandedIds.includes(projectOrWorkspaceId);
         setExpandedProjectAndWorkspaceIds(
@@ -784,13 +841,13 @@ const ProjectNavigationSidebarInner = (
         );
       }
     },
-    [expandedProjectAndWorkspaceIds, projectNavigationSidebarFilter, setExpandedProjectAndWorkspaceIds],
+    [expandedProjectAndWorkspaceIds, activeFilter, setExpandedProjectAndWorkspaceIds],
   );
 
   const expandProjectOrWorkspaces = useCallback(
     (projectOrWorkspaceIds: string[]) => {
       // Do not update toggle state if there is an active filter
-      if (!projectNavigationSidebarFilter) {
+      if (!activeFilter) {
         const expandedIds = expandedProjectAndWorkspaceIds || [];
         const newExpandedIds = Array.from(new Set([...expandedIds, ...projectOrWorkspaceIds]));
         // Avoid updating state if there is no change in expanded ids to prevent unnecessary re-render
@@ -800,7 +857,7 @@ const ProjectNavigationSidebarInner = (
         }
       }
     },
-    [expandedProjectAndWorkspaceIds, projectNavigationSidebarFilter, setExpandedProjectAndWorkspaceIds],
+    [expandedProjectAndWorkspaceIds, activeFilter, setExpandedProjectAndWorkspaceIds],
   );
 
   useImperativeHandle(
@@ -819,7 +876,7 @@ const ProjectNavigationSidebarInner = (
         return;
       }
 
-      if (projectNavigationSidebarFilter) {
+      if (activeFilter) {
         return;
       }
 
@@ -926,10 +983,14 @@ const ProjectNavigationSidebarInner = (
         }, previousFlatItems),
       );
     },
-    [projectNavigationSidebarFilter],
+    [activeFilter],
   );
 
   const parentRef = useRef<HTMLDivElement>(null);
+  const shortcutCreateTriggerRef = useRef<HTMLElement | null>(null);
+  const [isShortcutCreateOpen, setIsShortcutCreateOpen] = useState(false);
+  // The item that the shortcut create dropdown is targeting by keyboard up and down arrow keys
+  const [shortcutTargetItemId, setShortcutTargetItemId] = useState<string | null>(null);
   const visibleFlatItems = useMemo(() => flatItems.filter(i => !i.hidden), [flatItems]);
   const virtualizer = useVirtualizer({
     getScrollElement: () => parentRef.current,
@@ -956,6 +1017,77 @@ const ProjectNavigationSidebarInner = (
     selectedItemId && visibleFlatItems.findIndex(item => item.doc._id === selectedItemId) !== -1
       ? [selectedItemId]
       : [];
+  const pinnedHeaderKeys = useMemo(
+    () => visibleFlatItems.filter(item => item.kind === 'pinnedHeader').map(item => item.doc._id),
+    [visibleFlatItems],
+  );
+  const shortcutTargetItem = shortcutTargetItemId
+    ? (visibleFlatItems.find(item => item.doc._id === shortcutTargetItemId && item.kind !== 'pinnedRequest') ?? null)
+    : null;
+  const prevSelectedItemIdRef = useRef(selectedItemId);
+
+  useEffect(() => {
+    // Close the shortcut create dropdown when the selected item changes
+    if (prevSelectedItemIdRef.current !== selectedItemId) {
+      prevSelectedItemIdRef.current = selectedItemId;
+      setIsShortcutCreateOpen(false);
+    }
+  }, [selectedItemId]);
+
+  useDocBodyKeyboardShortcuts({
+    sidebar_showCreateDropdown: event => {
+      if (!isProjectTabActive) {
+        return;
+      }
+
+      // Find the row the user currently has focused via arrow up/down in the sidebar.
+      const activeElement = document.activeElement;
+      const focusedRow =
+        activeElement && parentRef.current?.contains(activeElement)
+          ? (activeElement.closest('[data-key]') as HTMLElement | null)
+          : null;
+      const focusedKey = focusedRow?.dataset.key ?? null;
+      const focusedItem = focusedKey
+        ? visibleFlatItems.find(item => item.doc._id === focusedKey && item.kind !== 'pinnedRequest')
+        : null;
+      const selectedFlatItem = selectedItemId
+        ? visibleFlatItems.find(item => item.doc._id === selectedItemId && item.kind !== 'pinnedRequest')
+        : null;
+      // If the user has a row focused, use that as the target item; otherwise, use the selected item.
+      const targetItem = focusedItem ?? selectedFlatItem;
+      if (
+        !targetItem ||
+        (targetItem.kind !== 'project' && targetItem.kind !== 'workspace' && targetItem.kind !== 'collectionChild')
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      window.main.trackAnalyticsEvent({
+        event: AnalyticsEvent.keyboardShortcutUsed,
+        properties: {
+          source: 'navigation-sidebar',
+          action: 'showCreateDropdown',
+        },
+      });
+
+      const targetId = targetItem.doc._id;
+      const targetIndex = visibleFlatItems.findIndex(item => item.doc._id === targetId);
+
+      // Scroll the item into view if needed
+      virtualizer.scrollToIndex(targetIndex, { align: 'auto' });
+
+      // Two request animation frames here: the first lets the virtualizer respond to scrollToIndex and the second waits for the browser to commit that
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const targetElement = parentRef.current?.querySelector(`[data-key="${targetId}"]`) as HTMLElement | null;
+          shortcutCreateTriggerRef.current = targetElement || parentRef.current;
+          setShortcutTargetItemId(targetId);
+          setIsShortcutCreateOpen(true);
+        });
+      });
+    },
+  });
 
   const { hasKonnectPat } = settings;
   const showKonnectSyncIntro = konnectSyncEnabled && !isProjectTabActive && !hasKonnectPat;
@@ -996,9 +1128,9 @@ const ProjectNavigationSidebarInner = (
         <>
           <div className="flex justify-between gap-1 p-(--padding-sm)">
             <SidebarSearchField
-              value={isProjectTabActive ? filterInputValue : (konnectFilter ?? '')}
+              value={isProjectTabActive ? filterInputValue : konnectFilterInputValue}
               isDisabled={projects.length === 0}
-              onChange={isProjectTabActive ? setFilterInputValue : setKonnectFilter}
+              onChange={isProjectTabActive ? setFilterInputValue : setKonnectFilterInputValue}
             />
             {isProjectTabActive ? (
               !isScratchPad && <NewProjectButton onPress={onCreateProject} isDisabled={projects.length === 0} />
@@ -1050,6 +1182,41 @@ const ProjectNavigationSidebarInner = (
             ref={parentRef}
             className="group/tree flex-1 overflow-y-auto pb-(--padding-sm)"
             data-testid="project-navigation-tree-container"
+            onKeyDownCapture={(e: React.KeyboardEvent) => {
+              if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') {
+                return;
+              }
+              const active = document.activeElement;
+              if (!(active instanceof HTMLElement)) {
+                return;
+              }
+              // Only act when the row itself is focused, not an inner control (button/input).
+              const rowEl = active.closest('[data-key]');
+              if (!rowEl || rowEl !== active) {
+                return;
+              }
+              const docId = (active.dataset.key || '').replace(/^pinned-request-/, '');
+              const item = visibleFlatItems.find(i => i.doc._id === docId && i.kind !== 'pinnedRequest');
+              if (!item) {
+                return;
+              }
+              // ArrowRight expands a collapsed item; ArrowLeft collapses an expanded one.
+              const expand = e.key === 'ArrowRight';
+              const isExpandable =
+                (item.kind === 'collectionChild' && models.requestGroup.isRequestGroup(item.doc)) ||
+                item.kind === 'project' ||
+                item.kind === 'workspace';
+              if (!isExpandable || item.collapsed !== expand) {
+                return;
+              }
+              e.preventDefault();
+              e.stopPropagation();
+              if (item.kind === 'collectionChild') {
+                toggleRequestGroups([docId], item.workspace, !expand);
+              } else {
+                toggleProjectOrWorkspace(docId);
+              }
+            }}
           >
             <GridList
               aria-label="Project Navigation Tree"
@@ -1058,11 +1225,18 @@ const ProjectNavigationSidebarInner = (
               className="outline-hidden"
               selectedKeys={selectedKeys}
               selectionMode="single"
+              disabledKeys={pinnedHeaderKeys}
+              disabledBehavior="all"
               dragAndDropHooks={sidebarDragAndDropHooks}
             >
               {virtualItem => {
                 const item = visibleFlatItems[virtualItem.index];
                 if (!item) return null;
+
+                // Keep the focus ring on the targeted item while the create dropdown is open,
+                // since keyboard focus has moved into the dropdown menu.
+                const isShortcutTarget =
+                  isShortcutCreateOpen && shortcutTargetItemId === item.doc._id && item.kind !== 'pinnedRequest';
 
                 return (
                   <GridListItem
@@ -1090,7 +1264,11 @@ const ProjectNavigationSidebarInner = (
                         if (routeInfo?.resourceId === docId) {
                           toggleProjectOrWorkspace(docId);
                         } else {
-                          !isScratchPad && window.main.trackAnalyticsEvent({ event: AnalyticsEvent.projectSwitched });
+                          !isScratchPad &&
+                            window.main.trackAnalyticsEvent({
+                              event: AnalyticsEvent.projectSwitched,
+                              properties: { project_id: docId },
+                            });
                           !isScratchPad && navigate(`/organization/${organizationId}/project/${docId}`);
                         }
                       } else if (item.kind === 'workspace') {
@@ -1131,7 +1309,7 @@ const ProjectNavigationSidebarInner = (
                         }
                       }
                     }}
-                    className="group outline-hidden select-none"
+                    className={`group rounded-xs outline-hidden select-none data-focus-visible:z-10 data-focus-visible:ring-2 data-focus-visible:ring-(--color-surprise) data-focus-visible:ring-inset ${isShortcutTarget ? 'z-10 ring-2 ring-(--color-surprise) ring-inset' : ''}`}
                     style={{
                       position: 'absolute',
                       top: 0,
@@ -1192,12 +1370,22 @@ const ProjectNavigationSidebarInner = (
               }}
             </GridList>
           </div>
+          {shortcutTargetItem && (
+            <SidebarShortcutActionsDropdown
+              target={shortcutTargetItem}
+              storageRules={storageRules}
+              isOpen={isShortcutCreateOpen}
+              onOpenChange={setIsShortcutCreateOpen}
+              triggerRef={shortcutCreateTriggerRef}
+            />
+          )}
+
           {!isProjectTabActive && lastSyncResult && (
             <div
               className={`m-2 flex items-start justify-between gap-2 rounded-sm p-3 text-xs ${
                 !lastSyncResult.success
                   ? 'bg-[rgba(58,18,8,1)]'
-                  : lastSyncResult.skippedRoutes.length > 0
+                  : lastSyncResult.skippedRoutes.length > 0 || lastSyncResult.skippedRegions.length > 0
                     ? 'bg-[rgba(250,173,20,0.15)]'
                     : 'bg-[rgba(82,196,26,0.15)]'
               }`}
@@ -1205,16 +1393,24 @@ const ProjectNavigationSidebarInner = (
               <div className="flex min-w-0 items-start gap-3">
                 <Icon
                   icon={
-                    lastSyncResult.success && lastSyncResult.skippedRoutes.length === 0
+                    lastSyncResult.success &&
+                    lastSyncResult.skippedRoutes.length === 0 &&
+                    lastSyncResult.skippedRegions.length === 0
                       ? 'circle-check'
                       : 'exclamation-triangle'
                   }
-                  className={lastSyncResult.success && lastSyncResult.skippedRoutes.length === 0 ? 'mt-1.5' : 'mt-1'}
+                  className={
+                    lastSyncResult.success &&
+                    lastSyncResult.skippedRoutes.length === 0 &&
+                    lastSyncResult.skippedRegions.length === 0
+                      ? 'mt-1.5'
+                      : 'mt-1'
+                  }
                 />
                 <div className="min-w-0">
                   <p className="font-semibold text-(--color-font)">
                     {lastSyncResult.success
-                      ? lastSyncResult.skippedRoutes.length > 0
+                      ? lastSyncResult.skippedRoutes.length > 0 || lastSyncResult.skippedRegions.length > 0
                         ? 'Sync complete, with warnings'
                         : 'Sync complete'
                       : 'Sync failed'}
@@ -1225,64 +1421,80 @@ const ProjectNavigationSidebarInner = (
                       : lastSyncResult.routes.created === 0 &&
                           lastSyncResult.routes.updated === 0 &&
                           lastSyncResult.routes.deleted === 0 &&
-                          lastSyncResult.routes.skipped === 0
+                          lastSyncResult.routes.skipped === 0 &&
+                          lastSyncResult.skippedRegions.length === 0
                         ? 'Already up-to-date with Konnect.'
                         : [
                             lastSyncResult.routes.created > 0 && `${lastSyncResult.routes.created} request(s) added`,
                             lastSyncResult.routes.updated > 0 && `${lastSyncResult.routes.updated} request(s) updated`,
                             lastSyncResult.routes.deleted > 0 && `${lastSyncResult.routes.deleted} request(s) deleted`,
                             lastSyncResult.routes.skipped > 0 && `${lastSyncResult.routes.skipped} route(s) skipped`,
+                            lastSyncResult.skippedRegions.length > 0 &&
+                              `${lastSyncResult.skippedRegions.length} region(s) skipped`,
                           ]
                             .filter(Boolean)
                             .join(', ') + '.'}
                   </p>
-                  {lastSyncResult.success && lastSyncResult.skippedRoutes.length > 0 && (
-                    <>
-                      <button
-                        className="mt-1 flex items-center gap-1 text-(--hl) hover:text-(--color-font)"
-                        onClick={() => setShowSyncDetails(prev => !prev)}
-                      >
-                        <Icon icon={showSyncDetails ? 'chevron-down' : 'chevron-right'} className="h-2.5 w-2.5" />
-                        {showSyncDetails ? 'Hide details' : 'Show details'}
-                      </button>
-                      {showSyncDetails && (
-                        <div className="mt-2 max-h-48 space-y-2 overflow-y-auto">
-                          {[...skippedRoutesByReason.entries()].map(([reason, routes]) => {
-                            const MAX_SHOW = 5;
-                            const visible = routes.slice(0, MAX_SHOW);
-                            const extra = routes.length - MAX_SHOW;
-                            return (
-                              <div key={reason}>
-                                <p className="text-(--hl)">{reason} for the following routes:</p>
+                  {lastSyncResult.success &&
+                    (lastSyncResult.skippedRoutes.length > 0 || lastSyncResult.skippedRegions.length > 0) && (
+                      <>
+                        <button
+                          className="mt-1 flex items-center gap-1 text-(--hl) hover:text-(--color-font)"
+                          onClick={() => setShowSyncDetails(prev => !prev)}
+                        >
+                          <Icon icon={showSyncDetails ? 'chevron-down' : 'chevron-right'} className="h-2.5 w-2.5" />
+                          {showSyncDetails ? 'Hide details' : 'Show details'}
+                        </button>
+                        {showSyncDetails && (
+                          <div className="mt-2 max-h-48 space-y-2 overflow-y-auto">
+                            {lastSyncResult.skippedRegions.length > 0 && (
+                              <div>
+                                <p className="text-(--hl)">Failed to fetch control planes for the following regions:</p>
                                 <ul className="mt-1 space-y-0.5 pl-3">
-                                  {visible.map(r => (
+                                  {lastSyncResult.skippedRegions.map(r => (
                                     <li key={r} className="list-disc text-(--color-font)">
                                       {r}
                                     </li>
                                   ))}
                                 </ul>
-                                {extra > 0 && (
-                                  <div className="mt-1 flex items-center gap-2 pl-3 text-(--hl)">
-                                    <span>+ {extra} more</span>
-                                    <button
-                                      className="underline hover:text-(--color-font)"
-                                      onClick={() => {
-                                        navigator.clipboard.writeText(routes.join('\n'));
-                                        setCopiedReason(reason);
-                                        setTimeout(() => setCopiedReason(null), 2000);
-                                      }}
-                                    >
-                                      {copiedReason === reason ? 'Copied' : 'Copy full list'}
-                                    </button>
-                                  </div>
-                                )}
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </>
-                  )}
+                            )}
+                            {[...skippedRoutesByReason.entries()].map(([reason, routes]) => {
+                              const MAX_SHOW = 5;
+                              const visible = routes.slice(0, MAX_SHOW);
+                              const extra = routes.length - MAX_SHOW;
+                              return (
+                                <div key={reason}>
+                                  <p className="text-(--hl)">{reason} for the following routes:</p>
+                                  <ul className="mt-1 space-y-0.5 pl-3">
+                                    {visible.map(r => (
+                                      <li key={r} className="list-disc text-(--color-font)">
+                                        {r}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                  {extra > 0 && (
+                                    <div className="mt-1 flex items-center gap-2 pl-3 text-(--hl)">
+                                      <span>+ {extra} more</span>
+                                      <button
+                                        className="underline hover:text-(--color-font)"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(routes.join('\n'));
+                                          setCopiedReason(reason);
+                                          setTimeout(() => setCopiedReason(null), 2000);
+                                        }}
+                                      >
+                                        {copiedReason === reason ? 'Copied' : 'Copy full list'}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
+                    )}
                 </div>
               </div>
               <button

@@ -184,7 +184,7 @@ export const InsomniaEventStreamProvider: FC<PropsWithChildren> = ({ children })
                 window.setTimeout(() => avatarImageCache.invalidate(event.avatar), CDN_INVALIDATION_TTL);
               }
               syncOrganizationsSubmit();
-            } else if (event.type === 'StorageRuleChanged' && event.team && event.team.includes('org_')) {
+            } else if (event.type === 'StorageRuleChanged' && (event.team.startsWith('org_') || event.team.startsWith('team_'))) {
               syncStorageRulesSubmit({
                 organizationId: event.team,
               });
@@ -206,7 +206,7 @@ export const InsomniaEventStreamProvider: FC<PropsWithChildren> = ({ children })
             } else if (event.type === 'VaultKeyChanged') {
               const accountId = userSession.accountId;
               const organizations = JSON.parse(
-                localStorage.getItem(`${accountId}:organizations`) || '[]',
+                localStorage.getItem(`${accountId}:spaces`) || '[]',
               ) as Organization[];
               clearVaultKeySubmit({
                 organizations: organizations?.map(org => org.id) || [],

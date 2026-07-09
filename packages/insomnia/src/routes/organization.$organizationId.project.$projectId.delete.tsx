@@ -4,9 +4,9 @@ import { href, redirect } from 'react-router';
 
 import { database } from '~/common/database';
 import { projectLock } from '~/common/project';
+import { invariant } from '~/common/utils/invariant';
 import { reportGitProjectCount } from '~/routes/organization.$organizationId.project.new';
-import { invariant } from '~/utils/invariant';
-import { createFetcherSubmitHook, getInitialRouteForOrganization } from '~/utils/router';
+import { createFetcherSubmitHook, getInitialRouteForOrganization } from '~/ui/utils/router';
 
 import type { Route } from './+types/organization.$organizationId.project.$projectId.delete';
 
@@ -14,7 +14,7 @@ export async function clientAction({ params }: Route.ClientActionArgs) {
   const { organizationId, projectId } = params;
   invariant(organizationId, 'Organization ID is required');
   invariant(projectId, 'Project ID is required');
-  const project = await services.project.get(projectId);
+  const project = await services.project.getById(projectId);
   invariant(project, 'Project not found');
 
   const user = await services.userSession.get();
@@ -35,7 +35,12 @@ export async function clientAction({ params }: Route.ClientActionArgs) {
     if (models.project.isConnectedGitProject(project)) {
       const effectiveRepoId = models.project.isGitProject(project) ? models.project.getEffectiveRepoId(project) : null;
       const gitRepository = effectiveRepoId ? await services.gitRepository.getById(effectiveRepoId) : null;
-      gitRepository && (await services.gitRepository.remove(gitRepository));
+      if (gitRepository) {
+        // Stop the watcher and delete the on-disk folder only if Insomnia owns it.
+        // User-chosen folders are left untouched.
+        await window.main.git.cleanupGitRepoStorage({ gitRepositoryId: gitRepository._id });
+        await services.gitRepository.remove(gitRepository);
+      }
     }
 
     await services.stats.incrementDeletedRequestsForDescendents(project);
@@ -50,7 +55,7 @@ export async function clientAction({ params }: Route.ClientActionArgs) {
 
     // If the deleted project is a Konnect project, navigate to another Konnect project
     if (project.konnectControlPlaneId) {
-      const remainingKonnectProjects = (await services.project.list({ organizationId })).filter(
+      const remainingKonnectProjects = (await services.project.listByOrganizationIds(organizationId)).filter(
         p => p.konnectControlPlaneId != null && p._id !== projectId,
       );
 

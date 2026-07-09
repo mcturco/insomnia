@@ -74,7 +74,7 @@ function validateThen(ruleName: string, then: Record<string, unknown>): string |
 
 // Structural check only: each "extends" entry must be a plain string. Whether an entry is a valid
 // identifier, local path, or remote URL — and whether a remote URL is safe to fetch (SSRF) — is
-// decided when the ruleset is bundled (see common/bundle-spectral-ruleset.ts).
+// decided when the ruleset is bundled (see main/bundle-spectral-ruleset.ts).
 function validateExtends(value: unknown): string | null {
   for (const entry of toArray(value)) {
     if (Array.isArray(entry)) {
@@ -147,7 +147,7 @@ export function validateSpectralRuleset(content: string): SpectralRulesetValidat
   try {
     parsed = YAML.parse(content);
   } catch {
-    return fail(`Ruleset is not valid YAML or JSON`);
+    return fail('Ruleset is not valid YAML or JSON.');
   }
 
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -162,7 +162,7 @@ export function validateSpectralRuleset(content: string): SpectralRulesetValidat
 
   const disallowed = keys.filter(key => !ALLOWED_TOP_LEVEL_PROPERTIES.includes(key));
   if (disallowed.length > 0) {
-    return fail(`Ruleset contains unsupported top-level keys. Only "rules" and "extends" are allowed.`);
+    return fail('Ruleset contains unsupported top-level keys. Only "rules" and "extends" are allowed.');
   }
 
   if ('extends' in ruleset) {

@@ -21,11 +21,9 @@ import vkBeautify from 'vkbeautify';
 
 import { DEBOUNCE_MILLIS } from '~/common/constants';
 import * as misc from '~/common/misc';
-import { plugins } from '~/plugins/renderer-bridge';
+import { type NunjucksParsedTag, type nunjucksTagContextMenuOptions } from '~/common/templating/types';
+import { extractNunjucksTagFromCoords } from '~/common/templating/utils';
 import { useRootLoaderData } from '~/root';
-import { getTagDefinitions } from '~/templating/renderer-safe';
-import { type NunjucksParsedTag, type nunjucksTagContextMenuOptions } from '~/templating/types';
-import { extractNunjucksTagFromCoords } from '~/templating/utils';
 import { AnalyticsEvent, trackOnceDaily } from '~/ui/analytics';
 import { Icon } from '~/ui/components/icon';
 import { createKeybindingsHandler, useDocBodyKeyboardShortcuts } from '~/ui/components/keydown-binder';
@@ -37,21 +35,16 @@ import { isKeyCombinationInRegistry } from '~/ui/components/settings/shortcuts';
 import { useNunjucks } from '~/ui/context/nunjucks/use-nunjucks';
 import { useEditorRefresh } from '~/ui/hooks/use-editor-refresh';
 import { usePlanData } from '~/ui/hooks/use-plan';
-import { ednPrettify } from '~/utils/prettify/edn';
-import { jsonPrettify } from '~/utils/prettify/json';
-import { queryXPath } from '~/utils/xpath/query';
+import { plugins } from '~/ui/plugins/renderer-bridge';
+import { getTagDefinitions } from '~/ui/templating/renderer-safe';
+import { ednPrettify } from '~/ui/utils/prettify/edn';
+import { jsonPrettify } from '~/ui/utils/prettify/json';
+import { queryXPath } from '~/ui/utils/xpath/query';
 
+import { getCachedEditorState, setCachedEditorState } from './editor-state-cache';
 import { normalizeIrregularWhitespace } from './normalize-irregular-whitespace';
 const TAB_SIZE = 4;
 const MAX_SIZE_FOR_LINTING = 1_000_000; // Around 1MB
-
-interface EditorState {
-  scroll: CodeMirror.ScrollInfo;
-  selections: CodeMirror.Range[];
-  cursor: CodeMirror.Position;
-  history: any;
-  marks: Partial<CodeMirror.MarkerRange>[];
-}
 
 export const shouldIndentWithTabs = ({ mode, indentWithTabs }: { mode?: string; indentWithTabs?: boolean }) => {
   // YAML is not valid when indented with Tabs
@@ -81,8 +74,6 @@ const widget = (cm: CodeMirror.EditorFromTextArea | null, from: CodeMirror.Posit
     return '\u2194';
   }
 };
-// Global object used for storing and persisting editor scroll, lint and folding margin states
-const editorStates: Record<string, EditorState> = {};
 export interface CodeEditorProps {
   autoPrettify?: boolean;
   className?: string;
@@ -317,7 +308,7 @@ export const CodeEditor = memo(
           if (scrollInfo.height <= 0 || scrollInfo.width <= 0) {
             return;
           }
-          editorStates[uniquenessKey] = {
+          setCachedEditorState(uniquenessKey, {
             scroll: scrollInfo,
             selections: codeMirror.current.listSelections(),
             cursor: codeMirror.current.getCursor(),
@@ -334,7 +325,7 @@ export const CodeEditor = memo(
                       to: undefined,
                     };
               }),
-          };
+          });
         }
       }, [uniquenessKey, codeMirror]);
 
@@ -500,13 +491,22 @@ export const CodeEditor = memo(
           codeMirror.current.makeLinksClickable(onClickLink);
         }
         // Restore the state
-        if (uniquenessKey && editorStates[uniquenessKey]) {
-          const { scroll, selections, cursor, history, marks } = editorStates[uniquenessKey];
-          codeMirror.current.scrollTo(scroll.left, scroll.top);
-          codeMirror.current.setHistory(history);
+        const cachedState = uniquenessKey ? getCachedEditorState(uniquenessKey) : undefined;
+        if (cachedState) {
+          const { scroll, selections, cursor, history, marks } = cachedState;
+          if (scroll) {
+            codeMirror.current.scrollTo(scroll.left, scroll.top);
+          }
+          if (history) {
+            codeMirror.current.setHistory(history);
+          }
           // NOTE: These won't be visible unless the editor is focused
-          codeMirror.current.setCursor(cursor.line, cursor.ch, { scroll: false });
-          codeMirror.current.setSelections(selections, undefined, { scroll: false });
+          if (cursor) {
+            codeMirror.current.setCursor(cursor.line, cursor.ch, { scroll: false });
+          }
+          if (selections) {
+            codeMirror.current.setSelections(selections, undefined, { scroll: false });
+          }
           // Restore marks one-by-one
           for (const { from, to } of marks || []) {
             // @ts-expect-error -- type unsoundness

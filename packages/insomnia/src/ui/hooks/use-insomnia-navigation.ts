@@ -106,7 +106,7 @@ const NAVIGATION_ROUTES = [
     id: 'project',
     path: '/organization/:organizationId/project/:projectId',
     getResourceId: params => params.projectId,
-    getResource: (resourceId: string) => services.project.get(resourceId),
+    getResource: (resourceId: string) => services.project.getById(resourceId),
   },
   {
     id: 'project:index',
@@ -164,7 +164,7 @@ const getMatchedRoute = (pathname: string, searchParams: URLSearchParams) => {
 
     return {
       route,
-      params: match.params,
+      params: match.params as Record<string, string | undefined>,
       resourceId,
     };
   }
@@ -345,7 +345,7 @@ export const getNavigationResources = async (
 ): Promise<NavigationResources> => {
   if (!routeInfo) return {};
   return {
-    project: routeInfo.projectId ? await services.project.get(routeInfo.projectId) : undefined,
+    project: routeInfo.projectId ? await services.project.getById(routeInfo.projectId) : undefined,
     workspace: routeInfo.workspaceId ? await services.workspace.getById(routeInfo.workspaceId) : undefined,
     resource: routeInfo.resourceId ? await getRouteResource(routeInfo) : undefined,
   };

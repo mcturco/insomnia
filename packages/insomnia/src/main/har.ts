@@ -1,8 +1,12 @@
 import type * as Har from 'har-format';
-import type { BaseModel, Cookie, Environment, Request, RequestGroup, Response, Workspace } from 'insomnia-data';
+import type { BaseModel, Cookie, Request, RequestGroup, Response, Workspace } from 'insomnia-data';
 import { models, services } from 'insomnia-data';
 import { Cookie as ToughCookie } from 'tough-cookie';
 
+import { RenderError } from '~/common/templating/render-error';
+import type { RenderedRequest } from '~/common/templating/types';
+import { parseGraphQLReqeustBody } from '~/common/utils/graph-ql';
+import { smartEncodeUrl } from '~/common/utils/url/querystring';
 import { getAuthHeader } from '~/main/network/get-auth-header';
 import { secureReadFile } from '~/main/secure-read-file';
 import { getRuntime } from '~/runtimes';
@@ -11,10 +15,6 @@ import { getAppVersion } from '../common/constants';
 import { database } from '../common/database';
 import { filterHeaders, getSetCookieHeaders, hasAuthHeader } from '../common/misc';
 import { getRenderedRequestAndContext } from '../common/render';
-import { RenderError } from '../templating/render-error';
-import type { RenderedRequest } from '../templating/types';
-import { parseGraphQLReqeustBody } from '../utils/graph-ql';
-import { smartEncodeUrl } from '../utils/url/querystring';
 
 const { isRequest } = models.request;
 
@@ -227,9 +227,9 @@ export async function exportHarRequest(requestId: string, environmentOrWorkspace
     const workspaceMeta = await services.workspaceMeta.getOrCreateByParentId(environmentOrWorkspaceId);
     const baseEnvironment = await services.environment.getOrCreateForParentId(environmentOrWorkspaceId);
     const activeEnvironment =
-      (await database.findOne<Environment>(models.environment.type, {
-        _id: workspaceMeta.activeEnvironmentId,
-      })) || baseEnvironment;
+      (workspaceMeta.activeEnvironmentId
+        ? await services.environment.getById(workspaceMeta.activeEnvironmentId)
+        : null) || baseEnvironment;
     environmentId = activeEnvironment._id;
   } else {
     throw new Error(`Invalid environmentOrWorkspaceId provided to exportHarRequest: ${environmentOrWorkspaceId}`);

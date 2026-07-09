@@ -8,10 +8,11 @@ import clone from 'clone';
 import { runVcsGraphQL } from 'insomnia-api';
 import type { BaseModel } from 'insomnia-data';
 
+import * as crypt from '~/common/account/crypt';
+import * as session from '~/common/account/session';
 import { PLAYWRIGHT_TEST } from '~/common/constants';
+import { deterministicStringify } from '~/sync/lib/deterministic-stringify';
 
-import * as crypt from '../../../account/crypt';
-import * as session from '../../../account/session';
 import type { Operation } from '../../../common/database';
 import { generateId } from '../../../common/misc';
 import type {
@@ -1290,18 +1291,21 @@ export class VCS {
 
     const teamKeys: { accountId: string; encSymmetricKey: string; autoLinked: boolean }[] = [];
 
-    if (!teamId || !teamPublicKeys?.length) {
-      throw new Error('teamId and teamPublicKeys must not be null or empty!');
+    if (!teamId) {
+      throw new Error('teamId must not be null or empty!');
     }
 
     // Encrypt the symmetric key with the public keys of all the team members, ourselves included
-    for (const { accountId, publicKey, autoLinked } of teamPublicKeys) {
+    for (const { accountId, publicKey, autoLinked } of teamPublicKeys || []) {
       teamKeys.push({
         autoLinked,
         accountId,
         encSymmetricKey: crypt.encryptRSAWithJWK(JSON.parse(publicKey), symmetricKeyStr),
       });
     }
+
+    // Use the local project ID if available; fall back to the workspace ID as a stable identifier.
+    const localProjectId = this._backendProject ? this._backendProject.id : workspaceId;
 
     const { projectCreate } = await this._runGraphQL<{ projectCreate: BackendProject }>(
       `
@@ -1329,7 +1333,7 @@ export class VCS {
       `,
       {
         name: workspaceName,
-        id: this._backendProjectId(),
+        id: localProjectId,
         rootDocumentId: workspaceId,
         teamId: teamId,
         teamKeys: teamKeys,
@@ -1344,7 +1348,7 @@ export class VCS {
 
   async _getBackendProject(): Promise<BackendProject | null> {
     const projectId = this._backendProject ? this._backendProject.id : 'n/a';
-    return this._store.getItem(`/projects/${projectId}/meta.json`);
+    return this._getBackendProjectById(projectId);
   }
 
   async _getBackendProjectById(projectId: string): Promise<BackendProject | null> {
@@ -1375,6 +1379,18 @@ export class VCS {
   }
 
   async _storeBackendProject(project: BackendProject) {
+    let existingProject: BackendProject | null = null;
+    try {
+      existingProject = await this._getBackendProjectById(project.id);
+    } catch (err) {
+      console.warn('[sync] Failed to get existing backend project %s', project.id, err);
+    }
+
+    if (existingProject && deterministicStringify(existingProject) === deterministicStringify(project)) {
+      console.debug('[sync] Skipping store due to no backend changes');
+      return;
+    }
+
     return this._store.setItem(`/projects/${project.id}/meta.json`, project);
   }
 

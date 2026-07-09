@@ -6,14 +6,7 @@ import type { Request, RequestGroup, Workspace } from 'insomnia-data';
 import { database as db, models, services } from 'insomnia-data';
 import type { PluginConfigMap } from 'insomnia-data/common';
 
-import { fetchFromTemplateWorkerDatabase } from '~/templating/liquid-extension-worker';
-
-import { getAppBundlePlugins, isDevelopment } from '../common/constants';
-import * as pluginApp from '../plugins/context/app';
-import * as pluginNetwork from '../plugins/context/network';
-import * as pluginStore from '../plugins/context/store';
-import type { RenderPurpose } from '../templating/types';
-import themes from './themes';
+import { parsePluginPermissions } from '~/common/plugins/permissions';
 import type {
   DocumentAction,
   Plugin,
@@ -24,7 +17,15 @@ import type {
   TemplateTag,
   Theme,
   WorkspaceAction,
-} from './types';
+} from '~/common/plugins/types';
+import { fetchFromTemplateWorkerDatabase } from '~/common/templating/liquid-extension-worker';
+import type { RenderPurpose } from '~/common/templating/types';
+
+import { getAppBundlePlugins, isDevelopment } from '../common/constants';
+import * as pluginApp from '../plugins/context/app';
+import * as pluginNetwork from '../plugins/context/network';
+import * as pluginStore from '../plugins/context/store';
+import themes from './themes';
 
 let plugins: Plugin[] | null | undefined = null;
 
@@ -109,12 +110,21 @@ async function traversePluginPath(pluginMap: Record<string, Plugin>, allPaths: s
         // Delete require cache entry and re-require
         const module = nodeRequire(modulePath);
 
+        const parsedPermissions = parsePluginPermissions(pluginJson.insomnia);
+        if (parsedPermissions.warnings.length > 0) {
+          // Constant format string; interpolated values passed as args so a plugin name can't forge log output.
+          console.warn('[plugin] %s has invalid insomnia.permissions: %o', pluginJson.name, parsedPermissions.warnings);
+        }
+
         pluginMap[pluginJson.name] = {
           name: pluginJson.name,
           description: pluginJson.description || pluginJson.insomnia.description || '',
           version: pluginJson.version || 'unknown',
           directory: modulePath || '',
           config: pluginJson.name in allConfigs ? allConfigs[pluginJson.name] : { disabled: false },
+          permissions: parsedPermissions.permissions,
+          permissionWarnings: parsedPermissions.warnings,
+          permissionsDeclared: parsedPermissions.declared,
           module: module,
         };
       } catch (err) {
@@ -145,7 +155,7 @@ export async function getPlugins(force = false): Promise<Plugin[]> {
 
     // Make sure the default directories exist
     const pluginPath = path.resolve(
-      process.env['INSOMNIA_DATA_PATH'] || (process.type === 'renderer' ? window : electron).app.getPath('userData'),
+      process.env['INSOMNIA_DATA_PATH'] || (__IS_RENDERER__ ? window : electron).app.getPath('userData'),
       'plugins',
     );
 
@@ -188,6 +198,10 @@ function getBundlePluginMap() {
         version: 'unknown',
         directory: '',
         config: { disabled: false },
+        // Bundle plugins are first-party; they declare no manifest and run on the baseline grant.
+        permissions: { modules: [], capabilities: [] },
+        permissionWarnings: [],
+        permissionsDeclared: false,
         module: module,
       };
     } catch (err) {
@@ -315,9 +329,7 @@ export function getPluginCommonContext({
     ...pluginNetwork.init(),
     util: {
       openInBrowser: async (url: string) =>
-        process.type === 'renderer' || process.type === 'worker'
-          ? window.main.openInBrowser(url)
-          : electron.shell.openExternal(url),
+        __IS_RENDERER__ ? window.main.openInBrowser(url) : electron.shell.openExternal(url),
       models: {
         request: {
           getById: services.request.getById,

@@ -52,6 +52,9 @@ export default async function build(options: Options) {
     sourcemap: true,
     format: 'cjs',
     external: ['electron'],
+    define: {
+      __IS_RENDERER__: JSON.stringify(true),
+    },
   };
 
   const hiddenBrowserWindowPreloadBuildOptions: BuildOptions = {
@@ -65,6 +68,9 @@ export default async function build(options: Options) {
     external: ['electron'],
     loader: {
       '.node': 'copy',
+    },
+    define: {
+      __IS_RENDERER__: JSON.stringify(true),
     },
   };
 
@@ -81,6 +87,9 @@ export default async function build(options: Options) {
     loader: {
       '.node': 'copy',
     },
+    define: {
+      __IS_RENDERER__: JSON.stringify(true),
+    },
   };
 
   const pluginWindowBuildOptions: BuildOptions = {
@@ -95,6 +104,9 @@ export default async function build(options: Options) {
     loader: {
       '.node': 'copy',
     },
+    define: {
+      __IS_RENDERER__: JSON.stringify(true),
+    },
   };
 
   const pluginWindowPreloadBuildOptions: BuildOptions = {
@@ -106,6 +118,9 @@ export default async function build(options: Options) {
     sourcemap: true,
     format: 'cjs',
     external: ['electron'],
+    define: {
+      __IS_RENDERER__: JSON.stringify(true),
+    },
   };
 
   const mainBuildOptions: BuildOptions = {
@@ -120,10 +135,16 @@ export default async function build(options: Options) {
       ...env,
       // Electron main = "browser"
       'process.type': '"browser"',
+      '__IS_RENDERER__': JSON.stringify(false),
     },
     external: [
       'electron',
       '@getinsomnia/node-libcurl',
+      // QuickJS loads its .wasm relative to its own __dirname; bundling it breaks that path
+      // resolution. Keep it external so it's required from node_modules at runtime (like node-libcurl).
+      'quickjs-emscripten',
+      'quickjs-emscripten-core',
+      '@jitl/*',
       'fsevents',
       '@node-llama-cpp/mac-arm64-metal',
       '@node-llama-cpp/mac-x64',

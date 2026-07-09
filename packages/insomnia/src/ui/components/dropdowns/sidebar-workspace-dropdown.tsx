@@ -4,8 +4,8 @@ import {
   exportMcpClientToFile,
   exportMockServerToFile,
 } from 'insomnia/src/ui/components/settings/import-export';
-import type { Project, Workspace } from 'insomnia-data';
-import { models } from 'insomnia-data';
+import type { MockServer, Project, Workspace } from 'insomnia-data';
+import { models, services } from 'insomnia-data';
 import type { PlatformKeyCombinations } from 'insomnia-data/common';
 import React, { Fragment, useState } from 'react';
 import {
@@ -47,6 +47,7 @@ import { PasteCurlModal } from '../modals/paste-curl-modal';
 import { PromptModal } from '../modals/prompt-modal';
 import { WorkspaceDuplicateModal } from '../modals/workspace-duplicate-modal';
 import { WorkspaceSettingsModal } from '../modals/workspace-settings-modal';
+import { createRequestOrFolderActionItems } from './actions/create-actions';
 
 interface Props {
   workspace: Workspace;
@@ -61,7 +62,7 @@ interface Props {
 interface ActionItem {
   id: string;
   name: string;
-  icon: IconName;
+  icon: IconProp;
   hint?: PlatformKeyCombinations;
   action: () => void;
   className?: string;
@@ -72,7 +73,7 @@ interface ActionItem {
 interface ActionSection {
   name: string;
   id: string;
-  icon: IconProp;
+  icon: IconName;
   items: ActionItem[];
 }
 
@@ -91,7 +92,7 @@ export const SidebarWorkspaceDropdown = ({
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [settingsData, setSettingsData] = useState<{ mockServer: MockServer | null; gitFilePath: string | null }>();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isPasteCurlModalOpen, setPasteCurlModalOpen] = useState(false);
 
@@ -104,7 +105,9 @@ export const SidebarWorkspaceDropdown = ({
 
   const workspaceName = workspace.name;
   const projectName = project.name || getProductName();
-  const isCollection = workspace.scope === 'collection';
+  const isCollection = models.workspace.isCollection(workspace);
+  const isDesign = models.workspace.isDesign(workspace);
+  const isScratchpadWorkspace = models.workspace.isScratchpad(workspace);
 
   const createRequest = (requestType: CreateRequestType) => {
     newRequestFetcher.submit({
@@ -123,106 +126,70 @@ export const SidebarWorkspaceDropdown = ({
     );
   };
 
-  const createSections: ActionSection[] = isCollection
-    ? [
-        {
-          name: 'Create',
-          id: 'create',
-          icon: 'plus',
-          items: [
-            {
-              id: 'New Folder',
-              name: 'New Folder',
-              icon: 'folder',
-              action: () =>
-                showModal(PromptModal, {
-                  title: 'New Folder',
-                  defaultValue: 'My Folder',
-                  submitName: 'Create',
-                  label: 'Name',
-                  selectText: true,
-                  onComplete: (name: string) =>
-                    newRequestGroupFetcher.submit({
-                      organizationId,
-                      projectId,
-                      workspaceId,
-                      parentId: workspaceId,
-                      name,
-                    }),
-                }),
-            },
-            {
-              id: 'HTTP',
-              name: 'HTTP Request',
-              icon: 'plus-circle',
-              action: () => createRequest('HTTP'),
-            },
-            {
-              id: 'Event Stream',
-              name: 'Event Stream Request (SSE)',
-              icon: 'plus-circle',
-              action: () => createRequest('Event Stream'),
-            },
-            {
-              id: 'GraphQL Request',
-              name: 'GraphQL Request',
-              icon: 'plus-circle',
-              action: () => createRequest('GraphQL'),
-            },
-            {
-              id: 'gRPC Request',
-              name: 'gRPC Request',
-              icon: 'plus-circle',
-              action: () => createRequest('gRPC'),
-            },
-            {
-              id: 'WebSocket Request',
-              name: 'WebSocket Request',
-              icon: 'plus-circle',
-              action: () => createRequest('WebSocket'),
-            },
-            {
-              id: 'Socket.IO Request',
-              name: 'Socket.IO Request',
-              icon: 'plus-circle',
-              action: () => createRequest('SocketIO'),
-            },
-          ],
-        },
-        {
-          name: 'Import',
-          id: 'import-create',
-          icon: 'file-import',
-          items: [
-            {
-              id: 'From Curl',
-              name: 'From Curl',
-              icon: 'terminal',
-              action: () => setPasteCurlModalOpen(true),
-            },
-            {
-              id: 'from-file',
-              name: 'From File',
-              icon: 'file-import',
-              action: () => setIsImportModalOpen(true),
-            },
-          ],
-        },
-        {
-          name: 'Run',
-          id: 'run',
-          icon: 'circle-play',
-          items: [
-            {
-              id: 'RunCollection',
-              name: 'Run Collection',
-              icon: 'circle-play',
-              action: () => openInNewTab(true),
-            },
-          ],
-        },
-      ]
-    : [];
+  const createSection: ActionSection = {
+    name: 'Create',
+    id: 'create',
+    icon: 'plus',
+    items: createRequestOrFolderActionItems({
+      createRequest,
+      createFolder: () =>
+        showModal(PromptModal, {
+          title: 'New Folder',
+          defaultValue: 'My Folder',
+          submitName: 'Create',
+          label: 'Name',
+          selectText: true,
+          onComplete: (name: string) =>
+            newRequestGroupFetcher.submit({
+              organizationId,
+              projectId,
+              workspaceId,
+              parentId: workspaceId,
+              name,
+            }),
+        }),
+      folderFirst: false,
+    }),
+  };
+
+  const importSection: ActionSection = {
+    name: 'Import',
+    id: 'import-create',
+    icon: 'file-import',
+    items: [
+      {
+        id: 'From Curl',
+        name: 'From Curl',
+        icon: 'terminal',
+        action: () => setPasteCurlModalOpen(true),
+      },
+      {
+        id: 'from-file',
+        name: 'From File',
+        icon: 'file-import',
+        action: () => setIsImportModalOpen(true),
+      },
+    ],
+  };
+
+  const runSection: ActionSection = {
+    name: 'Run',
+    id: 'run',
+    icon: 'circle-play',
+    items: [
+      {
+        id: 'RunCollection',
+        name: 'Run Collection',
+        icon: 'circle-play',
+        action: () => openInNewTab(true),
+      },
+    ],
+  };
+
+  const createSections: ActionSection[] = [
+    ...(isCollection ? [createSection, importSection] : []),
+    ...(isCollection || isDesign ? [runSection] : []),
+  ];
 
   const actionSection: ActionSection = {
     name: 'Actions',
@@ -305,7 +272,11 @@ export const SidebarWorkspaceDropdown = ({
         id: 'Settings',
         name: 'Settings',
         icon: 'gear',
-        action: () => setIsSettingsModalOpen(true),
+        action: async () =>
+          setSettingsData({
+            mockServer: (await services.mockServer.getByParentId(workspaceId)) ?? null,
+            gitFilePath: (await services.workspaceMeta.getByParentId(workspaceId))?.gitFilePath ?? null,
+          }),
       },
       {
         id: 'Delete',
@@ -317,7 +288,38 @@ export const SidebarWorkspaceDropdown = ({
     ],
   };
 
-  const allSections: ActionSection[] = [...createSections, actionSection];
+  const scratchpadActionList: ActionSection = {
+    name: 'Actions',
+    id: 'Actions',
+    icon: 'cog',
+    items: [
+      {
+        id: 'Export',
+        name: 'Export',
+        icon: 'file-export',
+        action: () => {
+          window.main.trackAnalyticsEvent({
+            event: AnalyticsEvent.exportStarted,
+            properties: { source: `${workspace.scope}-list` },
+          });
+          if (workspace.scope === 'mock-server') {
+            return exportMockServerToFile(workspace);
+          }
+          if (workspace.scope === 'environment') {
+            return exportGlobalEnvironmentToFile(workspace);
+          }
+          if (workspace.scope === 'mcp') {
+            return exportMcpClientToFile(workspace);
+          }
+          return setIsExportModalOpen(true);
+        },
+      },
+    ],
+  };
+
+  const allSections: ActionSection[] = isScratchpadWorkspace
+    ? [...createSections, scratchpadActionList]
+    : [...createSections, actionSection];
 
   return (
     <Fragment>
@@ -422,8 +424,14 @@ export const SidebarWorkspaceDropdown = ({
       {isExportModalOpen && (
         <ExportRequestsModal workspaceIdToExport={workspaceId} onClose={() => setIsExportModalOpen(false)} />
       )}
-      {isSettingsModalOpen && (
-        <WorkspaceSettingsModal workspace={workspace} project={project} onClose={() => setIsSettingsModalOpen(false)} />
+      {settingsData && (
+        <WorkspaceSettingsModal
+          workspace={workspace}
+          mockServer={settingsData.mockServer}
+          gitFilePath={settingsData.gitFilePath}
+          project={project}
+          onClose={() => setSettingsData(undefined)}
+        />
       )}
       {isDeleteModalOpen && (
         <ModalOverlay
@@ -477,7 +485,7 @@ export const SidebarWorkspaceDropdown = ({
                         )}
                       </p>
                       {models.project.isRemoteProject(project) && (
-                        <RadioGroup name="localOnly" defaultValue="false" className="mb-2 flex flex-col gap-2">
+                        <RadioGroup name="localOnly" defaultValue="true" className="mb-2 flex flex-col gap-2">
                           <Label className="text-sm text-(--hl)">How do you want to delete it?</Label>
                           <div className="flex gap-2">
                             <Radio

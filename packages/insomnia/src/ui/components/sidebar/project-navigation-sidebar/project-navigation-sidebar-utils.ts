@@ -12,7 +12,7 @@ import type {
   Workspace,
 } from 'insomnia-data';
 import type { BaseModel } from 'insomnia-data';
-import { models } from 'insomnia-data';
+import { models, services } from 'insomnia-data';
 
 import { database } from '~/common/database';
 import { fuzzyMatchAll } from '~/common/misc';
@@ -50,13 +50,32 @@ export interface AllRequestsAndMetaInWorkspace {
 //   created: r.created,
 // });
 
+export type WorkspaceWithSyncStatus = Workspace & {
+  hasUncommittedChanges?: boolean;
+  hasUnpushedChanges?: boolean;
+};
+
 export async function getWorkspacesByProjectIds(projectIds: string[]) {
-  const workspaces = await database.find<Workspace>(models.workspace.type, {
+  const workspaces = await services.workspace.list({
     parentId: { $in: projectIds },
   });
-  const workspacesByProjectId = new Map<string, Workspace[]>();
+  const workspaceMetas = await services.workspaceMeta.list({
+    parentId: { $in: workspaces.map(w => w._id) },
+  });
+  const metaByWorkspaceId = new Map(workspaceMetas.map(meta => [meta.parentId, meta]));
+  const workspacesByProjectId = new Map<string, WorkspaceWithSyncStatus[]>();
   projectIds.forEach(projectId => {
-    workspacesByProjectId.set(projectId, workspaces.filter(w => w.parentId === projectId) || []);
+    const projectWorkspaces = workspaces
+      .filter(w => w.parentId === projectId)
+      .map(w => {
+        const meta = metaByWorkspaceId.get(w._id);
+        return {
+          ...w,
+          hasUncommittedChanges: meta?.hasUncommittedChanges,
+          hasUnpushedChanges: meta?.hasUnpushedChanges,
+        };
+      });
+    workspacesByProjectId.set(projectId, projectWorkspaces);
   });
   return workspacesByProjectId;
 }

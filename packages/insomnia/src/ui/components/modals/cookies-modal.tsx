@@ -23,8 +23,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { useUpdateCookieJarActionFetcher } from '~/routes/organization.$organizationId.project.$projectId.workspace.$workspaceId.update-cookie-jar';
 import { OneLineEditor } from '~/ui/components/.client/codemirror/one-line-editor';
+import { useIsLightTheme } from '~/ui/hooks/theme';
 
-import { fuzzyMatch } from '../../../common/misc';
 import { useWorkspaceLoaderData } from '../../../routes/organization.$organizationId.project.$projectId.workspace.$workspaceId';
 import { useNunjucks } from '../../context/nunjucks/use-nunjucks';
 import { PromptButton } from '../base/prompt-button';
@@ -78,6 +78,8 @@ export const CookiesModal = ({ setIsOpen }: Props) => {
 
   const handleFilterChange = async (value: string) => {
     setFilter(value);
+    setPage(0);
+
     const renderedCookies: Cookie[] = [];
 
     for (const cookie of activeCookieJar?.cookies || []) {
@@ -93,15 +95,12 @@ export const CookiesModal = ({ setIsOpen }: Props) => {
       return;
     }
 
-    const filteredCookies: Cookie[] = [];
+    const query = value.toLowerCase();
+    const cookieStrings = await Promise.all(
+      renderedCookies.map(cookie => window.main.cookies.toString(cookie).catch(() => '')),
+    );
 
-    renderedCookies.forEach(cookie => {
-      if (fuzzyMatch(value, JSON.stringify(cookie), { splitSpace: true })) {
-        filteredCookies.push(cookie);
-      }
-    });
-
-    setFilteredCookies(chunkArray(filteredCookies));
+    setFilteredCookies(chunkArray(renderedCookies.filter((_, i) => cookieStrings[i].toLowerCase().includes(query))));
   };
 
   const handleCookieDelete = (cookieId: string) => {
@@ -165,9 +164,9 @@ export const CookiesModal = ({ setIsOpen }: Props) => {
       isDismissable={true}
       isOpen={true}
       onOpenChange={setIsOpen}
-      className="theme--transparent-overlay fixed top-0 left-0 z-10 flex h-(--visual-viewport-height) w-full justify-center bg-(--color-bg) py-[100px]"
+      className="fixed top-0 left-0 z-10 flex h-(--visual-viewport-height) w-full justify-center bg-black/30 py-[100px]"
     >
-      <Modal className="theme--dialog h-fit max-h-full w-full max-w-[900px] overflow-y-auto rounded-md border border-solid border-(--hl-sm) bg-(--color-bg) p-[32px] text-(--color-font)">
+      <Modal className="max-h-full w-full max-w-[900px] overflow-y-auto rounded-md border border-solid border-(--hl-sm) bg-(--color-bg) p-(--padding-lg) text-(--color-font)">
         <Dialog className="relative outline-hidden" aria-label="Cookies Modal">
           {({ close }) => (
             <>
@@ -414,6 +413,7 @@ interface CookieModifyModalProps {
 const CookieModifyModal = ({ cookie, isOpen, setIsOpen, onUpdateCookie }: CookieModifyModalProps) => {
   const [editCookie, setEditCookie] = useState<Cookie>(cookie);
   const [rawValue, setRawValue] = useState('');
+  const isLightTheme = useIsLightTheme();
 
   useEffect(() => {
     window.main.cookies
@@ -432,7 +432,7 @@ const CookieModifyModal = ({ cookie, isOpen, setIsOpen, onUpdateCookie }: Cookie
       isDismissable={true}
       isOpen={isOpen}
       onOpenChange={setIsOpen}
-      className="theme--transparent-overlay fixed top-0 left-0 z-10 flex h-(--visual-viewport-height) w-full justify-center bg-(--color-bg) py-[100px]"
+      className="fixed top-0 left-0 z-10 flex h-(--visual-viewport-height) w-full justify-center bg-black/30 py-[100px]"
     >
       <Modal className="theme--dialog h-fit max-h-full w-full max-w-[900px] overflow-y-auto rounded-md border border-solid border-(--hl-sm) bg-(--color-bg) p-[32px] text-(--color-font)">
         <Dialog className="relative outline-hidden">
@@ -515,7 +515,7 @@ const CookieModifyModal = ({ cookie, isOpen, setIsOpen, onUpdateCookie }: Cookie
                             <input
                               type="datetime-local"
                               defaultValue={localDateTime}
-                              className="calendar-invert"
+                              style={{ colorScheme: isLightTheme ? 'light' : 'dark' }}
                               onChange={event => setEditCookie({ ...editCookie, expires: event.target.value })}
                             />
                           </label>

@@ -25,6 +25,7 @@ function makeCp(overrides: Partial<KonnectControlPlane> = {}): KonnectControlPla
     id: 'cp-1',
     name: 'My CP',
     description: '',
+    region: 'us',
     config: {
       cluster_type: 'CLUSTER_TYPE_HYBRID',
       control_plane_endpoint: 'https://abc123.us.cp0.konghq.com',
@@ -72,7 +73,12 @@ function makeRoute(overrides: Partial<KonnectRoute> = {}): KonnectRoute {
  * - Control planes: page-number pagination (meta.page.total)
  * - Services / routes: cursor pagination (offset field)
  */
-function mockFetch(cps: KonnectControlPlane[], services: KonnectService[], routes: KonnectRoute[]) {
+function mockFetch(
+  cps: KonnectControlPlane[],
+  services: KonnectService[],
+  routes: KonnectRoute[],
+  opts?: { failRegion?: string },
+) {
   const json = (data: unknown) =>
     new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
@@ -84,8 +90,13 @@ function mockFetch(cps: KonnectControlPlane[], services: KonnectService[], route
     if (url.includes('/services')) {
       return json({ data: services, offset: null });
     }
-    if (url.includes('global.api.konghq.com/v2/control-planes')) {
-      return json({ data: cps, meta: { page: { total: cps.length, size: 100, number: 1 } } });
+    if (url.includes('.api.konghq.com/v2/control-planes')) {
+      const region = new URL(url).hostname.split('.')[0];
+      if (opts?.failRegion === region) {
+        return new Response('Internal Server Error', { status: 500 });
+      }
+      const regionalCps = cps.filter(cp => cp.config.control_plane_endpoint.includes(`.${region}.`));
+      return json({ data: regionalCps, meta: { page: { total: regionalCps.length, size: 100, number: 1 } } });
     }
     return new Response('Not found', { status: 404 });
   });
@@ -676,7 +687,7 @@ describe('Feature: Re-sync', () => {
     await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
 
     // Find the workspace and add a manual request
-    const workspaces = konnectWorkspaces(await db.find(models.workspace.type, { konnectServiceId: { $ne: null } }));
+    const workspaces = konnectWorkspaces(await insoservices.workspace.list({ konnectServiceId: { $ne: null } }));
     await insoservices.request.create({
       parentId: workspaces[0]._id,
       name: 'Manual Request',
@@ -1538,7 +1549,7 @@ describe('Feature: Collection Naming', () => {
 
     await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
 
-    const workspaces = konnectWorkspaces(await db.find(models.workspace.type, { konnectServiceId: { $ne: null } }));
+    const workspaces = konnectWorkspaces(await insoservices.workspace.list({ konnectServiceId: { $ne: null } }));
     expect(workspaces).toHaveLength(1);
     expect(workspaces[0].name).toBe('User Service');
   });
@@ -1548,7 +1559,7 @@ describe('Feature: Collection Naming', () => {
 
     await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
 
-    const [ws] = konnectWorkspaces(await db.find(models.workspace.type, { konnectServiceId: { $ne: null } }));
+    const [ws] = konnectWorkspaces(await insoservices.workspace.list({ konnectServiceId: { $ne: null } }));
     expect(ws.name).toBe('Gateway Service svc-uuid-2');
   });
 
@@ -1559,7 +1570,7 @@ describe('Feature: Collection Naming', () => {
     vi.stubGlobal('fetch', mockFetch([makeCp()], [makeService({ id: 'svc-uuid-1', name: 'Users API' })], []));
     const result = await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
 
-    const [ws] = konnectWorkspaces(await db.find(models.workspace.type, { konnectServiceId: { $ne: null } }));
+    const [ws] = konnectWorkspaces(await insoservices.workspace.list({ konnectServiceId: { $ne: null } }));
     expect(ws.name).toBe('Users API');
     expect(result.services.updated).toBe(1);
   });
@@ -1567,7 +1578,7 @@ describe('Feature: Collection Naming', () => {
   it('Scenario: Re-sync deletes collection when service is removed from Konnect', async () => {
     vi.stubGlobal('fetch', mockFetch([makeCp()], [makeService({ id: 'svc-uuid-1' })], []));
     await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
-    expect(konnectWorkspaces(await db.find(models.workspace.type, { konnectServiceId: { $ne: null } }))).toHaveLength(
+    expect(konnectWorkspaces(await insoservices.workspace.list({ konnectServiceId: { $ne: null } }))).toHaveLength(
       1,
     );
 
@@ -1576,7 +1587,7 @@ describe('Feature: Collection Naming', () => {
     const result = await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
 
     expect(result.services.deleted).toBe(1);
-    expect(konnectWorkspaces(await db.find(models.workspace.type, { konnectServiceId: { $ne: null } }))).toHaveLength(
+    expect(konnectWorkspaces(await insoservices.workspace.list({ konnectServiceId: { $ne: null } }))).toHaveLength(
       0,
     );
   });
@@ -1590,7 +1601,7 @@ describe('Feature: Environment Variable Mapping', () => {
 
     await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
 
-    const envWorkspace = (await db.find(models.workspace.type, { scope: 'environment' }))[0];
+    const envWorkspace = await insoservices.workspace.get({ scope: 'environment' });
     const env = await insoservices.environment.getOrCreateForParentId(envWorkspace._id);
     const kvNames = (env.kvPairData ?? []).map((kv: any) => kv.name);
     expect(kvNames).toContain('proxy_host');
@@ -1603,7 +1614,7 @@ describe('Feature: Environment Variable Mapping', () => {
     await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
 
     // User fills in proxy_host and adds their own variable
-    const envWorkspace = (await db.find(models.workspace.type, { scope: 'environment' }))[0];
+    const envWorkspace = await insoservices.workspace.get({ scope: 'environment' });
     const env = await insoservices.environment.getOrCreateForParentId(envWorkspace._id);
     const updatedKvPairs = (env.kvPairData ?? []).map((kv: any) =>
       kv.name === 'proxy_host' ? { ...kv, value: 'myproxy.example.com' } : kv,
@@ -1642,7 +1653,7 @@ describe('Feature: Environment Variable Mapping', () => {
 
     await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
 
-    const envWorkspace = (await db.find(models.workspace.type, { scope: 'environment' }))[0];
+    const envWorkspace = await insoservices.workspace.get({ scope: 'environment' });
     const env = await insoservices.environment.getOrCreateForParentId(envWorkspace._id);
     const proxyHost = (env.kvPairData ?? []).find((kv: any) => kv.name === 'proxy_host');
     const grpcProxyHost = (env.kvPairData ?? []).find((kv: any) => kv.name === 'grpc_proxy_host');
@@ -1658,7 +1669,7 @@ describe('Feature: Environment Variable Mapping', () => {
     await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
 
     // User fills in proxy_host manually
-    const envWorkspace = (await db.find(models.workspace.type, { scope: 'environment' }))[0];
+    const envWorkspace = await insoservices.workspace.get({ scope: 'environment' });
     const env = await insoservices.environment.getOrCreateForParentId(envWorkspace._id);
     const updatedKvPairs = (env.kvPairData ?? []).map((kv: any) =>
       kv.name === 'proxy_host' ? { ...kv, value: 'user-chosen.example.com' } : kv,
@@ -1690,7 +1701,7 @@ describe('Feature: Environment Variable Mapping', () => {
     vi.stubGlobal('fetch', mockFetch([makeCp()], [], []));
     await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
 
-    const envWorkspace = (await db.find(models.workspace.type, { scope: 'environment' }))[0];
+    const envWorkspace = await insoservices.workspace.get({ scope: 'environment' });
     const env = await insoservices.environment.getOrCreateForParentId(envWorkspace._id);
     const proxyHost = (env.kvPairData ?? []).find((kv: any) => kv.name === 'proxy_host');
     expect(proxyHost?.value).toBe('');
@@ -1724,7 +1735,7 @@ describe('Feature: Control Plane Naming', () => {
 
     const result = await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
 
-    const projects = konnectProjects(await db.find(models.project.type, { konnectControlPlaneId: { $ne: null } }));
+    const projects = konnectProjects(await insoservices.project.list({ konnectControlPlaneId: { $ne: null } }));
     expect(projects).toHaveLength(1);
     expect(projects[0]).toMatchObject({ name: 'Production', konnectControlPlaneId: 'cp-uuid-1' });
     expect(result.controlPlanes.created).toBe(1);
@@ -1737,7 +1748,7 @@ describe('Feature: Control Plane Naming', () => {
     vi.stubGlobal('fetch', mockFetch([makeCp({ id: 'cp-uuid-1', name: 'Production' })], [], []));
     const result = await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
 
-    const [project] = konnectProjects(await db.find(models.project.type, { konnectControlPlaneId: { $ne: null } }));
+    const [project] = konnectProjects(await insoservices.project.list({ konnectControlPlaneId: { $ne: null } }));
     expect(project.name).toBe('Production');
     expect(result.controlPlanes.updated).toBe(1);
   });
@@ -1756,17 +1767,13 @@ describe('Feature: Control Plane Naming', () => {
   it('Scenario: Re-sync deletes project when CP is removed from Konnect', async () => {
     vi.stubGlobal('fetch', mockFetch([makeCp({ id: 'cp-uuid-1' })], [], []));
     await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
-    expect(konnectProjects(await db.find(models.project.type, { konnectControlPlaneId: { $ne: null } }))).toHaveLength(
-      1,
-    );
+    expect(konnectProjects(await insoservices.project.list({ konnectControlPlaneId: { $ne: null } }))).toHaveLength(1);
 
     vi.stubGlobal('fetch', mockFetch([], [], []));
     const result = await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
 
     expect(result.controlPlanes.deleted).toBe(1);
-    expect(konnectProjects(await db.find(models.project.type, { konnectControlPlaneId: { $ne: null } }))).toHaveLength(
-      0,
-    );
+    expect(konnectProjects(await insoservices.project.list({ konnectControlPlaneId: { $ne: null } }))).toHaveLength(0);
   });
 });
 
@@ -2122,5 +2129,152 @@ describe('Feature: Expression-Based Routes', () => {
 
     expect(konnectRequests(await db.find(models.request.type, { konnectRouteKey: { $ne: null } }))).toHaveLength(0);
     expect(result.routes.skipped).toBe(1);
+  });
+});
+
+// ─── Feature: Multi-Region Control Plane Sync ────────────────────────────────
+
+describe('Feature: Multi-Region Control Plane Sync', () => {
+  it('Scenario: Syncs control planes from multiple regions in a single pass', async () => {
+    const usCp = makeCp({
+      id: 'cp-us',
+      name: 'US Plane',
+      region: 'us',
+      config: {
+        cluster_type: 'CLUSTER_TYPE_HYBRID',
+        control_plane_endpoint: 'https://abc.us.cp0.konghq.com',
+        cloud_gateway: true,
+      },
+    });
+    const euCp = makeCp({
+      id: 'cp-eu',
+      name: 'EU Plane',
+      region: 'eu',
+      config: {
+        cluster_type: 'CLUSTER_TYPE_HYBRID',
+        control_plane_endpoint: 'https://abc.eu.cp0.konghq.com',
+        cloud_gateway: true,
+      },
+    });
+
+    vi.stubGlobal('fetch', mockFetch([usCp, euCp], [], []));
+
+    const result = await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
+
+    const projects = konnectProjects(await db.find(models.project.type, { parentId: ORG_ID }));
+    expect(projects).toHaveLength(2);
+    expect(projects.map((p: any) => p.konnectControlPlaneId).sort()).toEqual(['cp-eu', 'cp-us']);
+    expect(result.controlPlanes.created).toBe(2);
+  });
+
+  it('Scenario: Deletes project when CP is removed from its region', async () => {
+    const usCp = makeCp({
+      id: 'cp-us',
+      name: 'US Plane',
+      region: 'us',
+      config: {
+        cluster_type: 'CLUSTER_TYPE_HYBRID',
+        control_plane_endpoint: 'https://abc.us.cp0.konghq.com',
+        cloud_gateway: true,
+      },
+    });
+    const euCp = makeCp({
+      id: 'cp-eu',
+      name: 'EU Plane',
+      region: 'eu',
+      config: {
+        cluster_type: 'CLUSTER_TYPE_HYBRID',
+        control_plane_endpoint: 'https://abc.eu.cp0.konghq.com',
+        cloud_gateway: true,
+      },
+    });
+
+    vi.stubGlobal('fetch', mockFetch([usCp, euCp], [], []));
+    await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
+
+    // EU CP is gone on next sync
+    vi.stubGlobal('fetch', mockFetch([usCp], [], []));
+    const result = await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
+
+    const projects = konnectProjects(await db.find(models.project.type, { parentId: ORG_ID }));
+    expect(projects).toHaveLength(1);
+    expect(projects[0].konnectControlPlaneId).toBe('cp-us');
+    expect(result.controlPlanes.deleted).toBe(1);
+  });
+});
+
+describe('Feature: Region fetch error resilience', () => {
+  it('Scenario: Continues syncing other regions when one fails', async () => {
+    const usCp = makeCp({
+      id: 'cp-us',
+      name: 'US Plane',
+      region: 'us',
+      config: {
+        cluster_type: 'CLUSTER_TYPE_HYBRID',
+        control_plane_endpoint: 'https://abc.us.cp0.konghq.com',
+        cloud_gateway: true,
+      },
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('eu.api.konghq.com/v2/control-planes')) {
+          return new Response('Internal Server Error', { status: 500 });
+        }
+        if (url.includes('.api.konghq.com/v2/control-planes')) {
+          return new Response(JSON.stringify({ data: [usCp], meta: { page: { total: 1, size: 100, number: 1 } } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response('Not found', { status: 404 });
+      }),
+    );
+
+    const result = await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
+
+    const projects = konnectProjects(await db.find(models.project.type, { parentId: ORG_ID }));
+    expect(projects).toHaveLength(1);
+    expect(projects[0].konnectControlPlaneId).toBe('cp-us');
+    expect(result.controlPlanes.created).toBe(1);
+  });
+
+  it('Scenario: Does not delete projects from a region that failed to fetch', async () => {
+    const usCp = makeCp({
+      id: 'cp-us',
+      name: 'US Plane',
+      region: 'us',
+      config: {
+        cluster_type: 'CLUSTER_TYPE_HYBRID',
+        control_plane_endpoint: 'https://abc.us.cp0.konghq.com',
+        cloud_gateway: true,
+      },
+    });
+    const euCp = makeCp({
+      id: 'cp-eu',
+      name: 'EU Plane',
+      region: 'eu',
+      config: {
+        cluster_type: 'CLUSTER_TYPE_HYBRID',
+        control_plane_endpoint: 'https://abc.eu.cp0.konghq.com',
+        cloud_gateway: true,
+      },
+    });
+
+    // First sync: both regions succeed
+    vi.stubGlobal('fetch', mockFetch([usCp, euCp], [], []));
+    await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
+
+    // Second sync: EU region fails — cp-eu should NOT be deleted
+    vi.stubGlobal('fetch', mockFetch([usCp], [], [], { failRegion: 'eu' }));
+    const result = await syncKonnect({ pat: 'kpat_test', organizationId: ORG_ID });
+
+    const projects = konnectProjects(await db.find(models.project.type, { parentId: ORG_ID }));
+    expect(projects).toHaveLength(2);
+    expect(projects.map((p: any) => p.konnectControlPlaneId).sort()).toEqual(['cp-eu', 'cp-us']);
+    expect(result.controlPlanes.deleted).toBe(0);
+    expect(result.skippedRegions).toHaveLength(1);
+    expect(result.skippedRegions[0]).toMatch(/^eu:/);
   });
 });
