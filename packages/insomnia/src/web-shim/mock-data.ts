@@ -188,7 +188,118 @@ export async function seedMockData(db: IDatabase): Promise<void> {
     ],
   });
 
+  // ── Extra collections — simulate a busy nav with many collections ──────────
+  await seedManyCollections(db, 30);
+
+  // ── Other workspace types — give the nav a realistic mix of workspace kinds ──
+  await seedOtherWorkspaceTypes(db);
+
   await db.flushChanges(flushId);
+}
+
+// A few non-collection workspaces of each type, so a busy project shows a mix
+// of documents / mock servers / environments / MCP clients alongside its many
+// collections.
+const OTHER_WORKSPACES: { scope: 'design' | 'mock-server' | 'environment' | 'mcp'; name: string }[] = [
+  { scope: 'design', name: 'API Spec v2' },
+  { scope: 'design', name: 'Onboarding Guide' },
+  { scope: 'design', name: 'Payments OpenAPI' },
+  { scope: 'design', name: 'Public Docs' },
+  { scope: 'mock-server', name: 'Sandbox Mock' },
+  { scope: 'mock-server', name: 'Staging Mock' },
+  { scope: 'environment', name: 'Shared Environments' },
+  { scope: 'mcp', name: 'Assistant MCP' },
+];
+
+async function seedOtherWorkspaceTypes(db: IDatabase): Promise<void> {
+  for (const { scope, name } of OTHER_WORKSPACES) {
+    const workspace = await db.docCreate('Workspace', {
+      parentId: MOCK_PROJECT_ID,
+      name,
+      description: '',
+      scope,
+    } as any);
+
+    const baseEnv = await db.docCreate('Environment', {
+      parentId: workspace._id,
+      name: 'Base Environment',
+      data: {},
+      dataPropertyOrder: null,
+      metaIsSortable: false,
+      isPrivate: false,
+    } as any);
+
+    await db.docCreate('CookieJar', {
+      parentId: workspace._id,
+      name: 'Default Jar',
+      cookies: [],
+    } as any);
+
+    await db.docCreate('WorkspaceMeta', {
+      parentId: workspace._id,
+      activeEnvironmentId: baseEnv._id,
+      hasSeen: true,
+    } as any);
+
+    // Design docs need an ApiSpec to open without erroring.
+    if (scope === 'design') {
+      await db.docCreate('ApiSpec', {
+        parentId: workspace._id,
+        fileName: name,
+        contents: '',
+        contentType: 'yaml',
+      } as any);
+    }
+  }
+}
+
+// Names cycled through to give the simulated collections realistic labels.
+const COLLECTION_NAMES = [
+  'Payments API', 'Billing Service', 'User Management', 'Notifications',
+  'Search Service', 'Inventory API', 'Orders', 'Shipping', 'Analytics',
+  'Auth Gateway', 'Media Uploads', 'Webhooks', 'Reporting', 'Admin Tools',
+  'Feature Flags', 'Recommendations', 'Messaging', 'Geolocation', 'Catalog',
+  'Subscriptions', 'Support Tickets', 'Audit Log', 'Rate Limiter', 'CDN Purge',
+  'Email Templates', 'SMS Gateway', 'Fraud Detection', 'Loyalty Program',
+  'Warehouse Sync', 'Partner API',
+];
+
+// Creates `count` collection workspaces under the mock project so the nav can be
+// exercised with a large list. Each gets a base environment and cookie jar so
+// navigating into it doesn't 404.
+async function seedManyCollections(db: IDatabase, count: number): Promise<void> {
+  for (let i = 0; i < count; i++) {
+    const name = COLLECTION_NAMES[i % COLLECTION_NAMES.length];
+    const label = i < COLLECTION_NAMES.length ? name : `${name} ${Math.floor(i / COLLECTION_NAMES.length) + 1}`;
+
+    const workspace = await db.docCreate('Workspace', {
+      parentId: MOCK_PROJECT_ID,
+      name: label,
+      description: '',
+      scope: 'collection',
+    } as any);
+
+    const baseEnv = await db.docCreate('Environment', {
+      parentId: workspace._id,
+      name: 'Base Environment',
+      data: { base_url: 'https://api.example.com' },
+      dataPropertyOrder: null,
+      metaIsSortable: false,
+      isPrivate: false,
+    } as any);
+
+    await db.docCreate('CookieJar', {
+      parentId: workspace._id,
+      name: 'Default Jar',
+      cookies: [],
+    } as any);
+
+    await db.docCreate('WorkspaceMeta', {
+      parentId: workspace._id,
+      activeEnvironmentId: baseEnv._id,
+      hasSeen: true,
+    } as any);
+  }
 }
 
 async function makeRequest(

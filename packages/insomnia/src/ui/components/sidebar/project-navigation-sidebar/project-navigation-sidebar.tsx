@@ -198,7 +198,7 @@ const ProjectNavigationSidebarInner = (
   ref: ForwardedRef<ProjectNavigationSidebarHandle>,
 ) => {
   const navigate = useNavigate();
-  const { organizationId, projectId: activeProjectId } = useParams() as {
+  const { organizationId, projectId: activeProjectId, workspaceId: activeWorkspaceId } = useParams() as {
     organizationId: string;
     projectId?: string;
     workspaceId?: string;
@@ -218,6 +218,10 @@ const ProjectNavigationSidebarInner = (
 
   const [collectionSortOrders, setCollectionSortOrders] = useState<Record<string, SortOrder>>({});
   const [flatItems, setFlatItems] = useState<FlatItem[]>([]);
+  // Focused-collection state: when set, the sidebar swipes to show only this
+  // collection's request tree. This is pure UI state — it never changes the route.
+  const [focusedWorkspaceId, setFocusedWorkspaceId] = useState<string | null>(null);
+  const [focusTransition, setFocusTransition] = useState<'none' | 'in' | 'out'>('none');
   const [projectWorkspaceSortOrder, setProjectWorkspaceSortOrder] = useState<Record<string, WorkspaceSortOrder>>({});
   const [unsyncedFilesByProjectId, setUnsyncedFilesByProjectId] = useState<Map<string, InsomniaFile[]>>(new Map());
   // Customized workspace sort orders by projectId
@@ -860,6 +864,64 @@ const ProjectNavigationSidebarInner = (
     [expandedProjectAndWorkspaceIds, activeFilter, setExpandedProjectAndWorkspaceIds],
   );
 
+  // Swipe the sidebar into the focused view of a single collection. Expands the
+  // collection (and its project) so its request tree is built, then focuses it.
+  const focusWorkspace = useCallback(
+    (workspaceId: string, projectId: string) => {
+      expandProjectOrWorkspaces([projectId, workspaceId]);
+      setFocusTransition('in');
+      setFocusedWorkspaceId(workspaceId);
+    },
+    [expandProjectOrWorkspaces],
+  );
+
+  // Back arrow: swipe back to the full tree without touching the route.
+  const exitFocus = useCallback(() => {
+    setFocusTransition('out');
+    setFocusedWorkspaceId(null);
+  }, []);
+
+  // Leaving the organization context should drop any focused collection.
+  useEffect(() => {
+    setFocusedWorkspaceId(null);
+    setFocusTransition('none');
+  }, [organizationId]);
+
+  // Drive focus from the active route so navigating to a collection from
+  // anywhere (breadcrumbs, project dashboard, tabs, deep links) focuses it.
+  // Tracks the last-seen active workspace so the back arrow can un-focus while
+  // staying on the same route without immediately re-focusing.
+  const prevActiveWorkspaceIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (activeWorkspaceId === prevActiveWorkspaceIdRef.current) {
+      return;
+    }
+    if (!activeWorkspaceId) {
+      // Navigated to the project dashboard (no active workspace) → full tree.
+      prevActiveWorkspaceIdRef.current = activeWorkspaceId;
+      setFocusTransition('out');
+      setFocusedWorkspaceId(null);
+      return;
+    }
+    // Wait until the workspace is present in the tree so we can read its scope.
+    // Don't advance the ref until then, so a fresh load/deep-link still focuses
+    // once the data arrives.
+    const workspaceItem = flatItems.find(
+      (i): i is Extract<FlatItem, { kind: 'workspace' }> => i.kind === 'workspace' && i.doc._id === activeWorkspaceId,
+    );
+    if (!workspaceItem) {
+      return;
+    }
+    prevActiveWorkspaceIdRef.current = activeWorkspaceId;
+    if (workspaceItem.doc.scope === 'collection') {
+      focusWorkspace(activeWorkspaceId, workspaceItem.project._id);
+    } else {
+      // Design docs, mock servers, environments etc. show the full tree.
+      setFocusTransition('out');
+      setFocusedWorkspaceId(null);
+    }
+  }, [activeWorkspaceId, flatItems, focusWorkspace]);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -991,7 +1053,27 @@ const ProjectNavigationSidebarInner = (
   const [isShortcutCreateOpen, setIsShortcutCreateOpen] = useState(false);
   // The item that the shortcut create dropdown is targeting by keyboard up and down arrow keys
   const [shortcutTargetItemId, setShortcutTargetItemId] = useState<string | null>(null);
-  const visibleFlatItems = useMemo(() => flatItems.filter(i => !i.hidden), [flatItems]);
+  const visibleFlatItems = useMemo(() => {
+    const notHidden = flatItems.filter(i => !i.hidden);
+    if (!focusedWorkspaceId) {
+      return notHidden;
+    }
+    // In focused mode show only the focused collection's tree (its request
+    // groups, requests, pinned items and empty-state nodes). The workspace
+    // header row is dropped — its name is shown in the back-arrow header.
+    return notHidden.filter(
+      item =>
+        ('workspace' in item && (item as { workspace?: { _id: string } }).workspace?._id === focusedWorkspaceId) ||
+        (item.kind === 'pinnedHeader' && item.doc._id.startsWith(focusedWorkspaceId)),
+    );
+  }, [flatItems, focusedWorkspaceId]);
+  const focusedWorkspace = useMemo(
+    () =>
+      focusedWorkspaceId
+        ? flatItems.find(i => i.kind === 'workspace' && i.doc._id === focusedWorkspaceId)?.doc
+        : undefined,
+    [flatItems, focusedWorkspaceId],
+  );
   const virtualizer = useVirtualizer({
     getScrollElement: () => parentRef.current,
     count: visibleFlatItems.length,
@@ -1126,6 +1208,20 @@ const ProjectNavigationSidebarInner = (
         <KonnectSyncIntro onConfigure={() => setShowKonnectConfigModal(true)} />
       ) : (
         <>
+          {focusedWorkspaceId ? (
+            <div className="flex items-center gap-2 p-(--padding-sm)">
+              <BasicButton
+                aria-label="Back to all projects"
+                onPress={exitFocus}
+                className="flex aspect-square h-7 items-center justify-center rounded-xs text-(--color-font) ring-1 ring-transparent transition-all hover:bg-(--hl-xs) focus:ring-(--hl-md) focus:ring-inset aria-pressed:bg-(--hl-sm)"
+              >
+                <Icon icon="chevron-left" />
+              </BasicButton>
+              <span className="truncate font-semibold text-(--color-font)">
+                {focusedWorkspace?.name || 'Collection'}
+              </span>
+            </div>
+          ) : (
           <div className="flex justify-between gap-1 p-(--padding-sm)">
             <SidebarSearchField
               value={isProjectTabActive ? filterInputValue : konnectFilterInputValue}
@@ -1173,6 +1269,7 @@ const ProjectNavigationSidebarInner = (
               </div>
             )}
           </div>
+          )}
 
           {!isProjectTabActive && syncing && (
             <p className="truncate px-4 pb-1 text-xs text-(--hl) italic">{progress}</p>
@@ -1218,6 +1315,16 @@ const ProjectNavigationSidebarInner = (
               }
             }}
           >
+            <div
+              key={focusedWorkspaceId ?? '__all__'}
+              className={
+                focusTransition === 'in'
+                  ? 'animate-[sidebar-focus-in_220ms_ease-out]'
+                  : focusTransition === 'out'
+                    ? 'animate-[sidebar-focus-out_220ms_ease-out]'
+                    : ''
+              }
+            >
             <GridList
               aria-label="Project Navigation Tree"
               items={virtualizer.getVirtualItems()}
@@ -1272,7 +1379,22 @@ const ProjectNavigationSidebarInner = (
                           !isScratchPad && navigate(`/organization/${organizationId}/project/${docId}`);
                         }
                       } else if (item.kind === 'workspace') {
-                        if (routeInfo?.resourceId === docId && routeInfo?.routeId !== 'runner') {
+                        if (item.doc.scope === 'collection') {
+                          // Prototype: swipe the sidebar into this collection's tree,
+                          // and open it in the main pane if it isn't already active.
+                          focusWorkspace(docId, item.project._id);
+                          if (routeInfo?.resourceId !== docId || routeInfo?.routeId === 'runner') {
+                            tabNavigate(
+                              {
+                                organization: organizationId,
+                                project: item.project,
+                                workspace: item.doc,
+                                item: item.doc,
+                              },
+                              { withTab: isPrimaryClickModifier(e), shouldNavigate: true, searchParams },
+                            );
+                          }
+                        } else if (routeInfo?.resourceId === docId && routeInfo?.routeId !== 'runner') {
                           toggleProjectOrWorkspace(docId);
                         } else {
                           tabNavigate(
@@ -1369,6 +1491,7 @@ const ProjectNavigationSidebarInner = (
                 );
               }}
             </GridList>
+            </div>
           </div>
           {shortcutTargetItem && (
             <SidebarShortcutActionsDropdown
