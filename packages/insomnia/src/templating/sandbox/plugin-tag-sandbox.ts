@@ -3,7 +3,7 @@ import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten';
 import type { HostBridge } from './host-bridge';
 import { IN_SANDBOX_BOOTSTRAP, RUNNER, wrapPluginSource } from './in-sandbox-bootstrap';
 import { type ContextEnvelope, encodeBridgeFailure, encodeBridgeSuccess } from './marshal';
-import { MODULE_REGISTRY_SOURCE } from './module-registry';
+import { buildModuleRegistrySource } from './module-registry';
 import { SANDBOX_GLOBALS_SOURCE } from './sandbox-globals';
 
 /**
@@ -68,7 +68,8 @@ export const runTagInSandbox = async (opts: RunTagInSandboxOptions): Promise<str
     // appInfo (platform/arch) is injected as its own global for the process stub to read + delete.
     setGlobalString(ctx, '__sandboxAppInfoJSON', JSON.stringify(envelope.appInfo ?? {}));
     evalOrThrow(ctx, SANDBOX_GLOBALS_SOURCE, '<sandbox-globals>');
-    evalOrThrow(ctx, MODULE_REGISTRY_SOURCE, '<sandbox-modules>');
+    // Only register heavy vendored libs the plugin was granted, so unrelated renders don't parse them.
+    evalOrThrow(ctx, buildModuleRegistrySource(envelope.grantedModules), '<sandbox-modules>');
     evalOrThrow(ctx, wrapPluginSource(pluginSource), '<plugin>');
     evalOrThrow(ctx, RUNNER, '<runner>');
 
@@ -215,7 +216,13 @@ const evalOrThrow = (ctx: QuickJSContext, code: string, filename: string): void 
 /** Rebuild a real Error from the dumped VM error so callers (e.g. translateLiquidError) see a normal Error. */
 const toError = (data: unknown): Error => {
   if (data && typeof data === 'object' && 'message' in data) {
-    const { message, name, stack } = data as { message?: string; name?: string; stack?: string };
+    const { message, name, stack, code, moduleName } = data as {
+      message?: string;
+      name?: string;
+      stack?: string;
+      code?: SandboxModuleDenialError['code'];
+      moduleName?: string;
+    };
     const err = new Error(message ?? 'Sandbox error');
     if (name) {
       err.name = name;
@@ -223,7 +230,19 @@ const toError = (data: unknown): Error => {
     if (stack) {
       err.stack = stack;
     }
+    if (code) {
+      (err as SandboxModuleDenialError).code = code;
+    }
+    if (moduleName) {
+      (err as SandboxModuleDenialError).moduleName = moduleName;
+    }
     return err;
   }
   return new Error(typeof data === 'string' ? data : JSON.stringify(data));
 };
+
+/** Thrown by `__require` in the sandbox when a module is denied; `moduleName` is the requested specifier. */
+export interface SandboxModuleDenialError extends Error {
+  code: 'SANDBOX_MODULE_NOT_PERMITTED' | 'SANDBOX_MODULE_NOT_AVAILABLE';
+  moduleName: string;
+}
