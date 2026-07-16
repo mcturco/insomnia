@@ -250,6 +250,16 @@ async function seedOtherWorkspaceTypes(db: IDatabase): Promise<void> {
         contentType: 'yaml',
       } as any);
     }
+
+    // Mock servers need a MockServer doc to open without erroring.
+    if (scope === 'mock-server') {
+      await db.docCreate('MockServer', {
+        parentId: workspace._id,
+        name,
+        url: 'http://localhost:8080',
+        useInsomniaCloud: true,
+      } as any);
+    }
   }
 }
 

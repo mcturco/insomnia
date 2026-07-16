@@ -132,9 +132,12 @@ interface RequestNodeProps {
   item: CollectionChildFlatItem | PinnedRequestFlatItem;
   onToggleFolder: (requestGroupIds: string[], workspace: Workspace) => void;
   className?: string;
+  // Number of ancestor indent levels to strip. In collection-focus mode the
+  // project/workspace rows are hidden, so the tree indents to its first level.
+  depthOffset?: number;
 }
 
-export const RequestNode = ({ item, onToggleFolder, className }: RequestNodeProps) => {
+export const RequestNode = ({ item, onToggleFolder, className, depthOffset = 0 }: RequestNodeProps) => {
   const { doc, level: requestLevel, workspace, project, collapsed, pinned, kind } = item;
   const isPinnedRequest = kind === 'pinnedRequest';
   const isLastPinned = item.kind === 'pinnedRequest' && item.isLastPinned;
@@ -247,7 +250,7 @@ export const RequestNode = ({ item, onToggleFolder, className }: RequestNodeProp
   return (
     <div
       className={`${ROW_CLASS} ${className ?? ''} ${isPinnedRequest ? 'h-full! group-hover:bg-transparent! group-focus:bg-transparent!' : ''}`}
-      style={{ paddingLeft: `${level + 3}rem` }}
+      style={{ paddingLeft: `${Math.max(level + 3 - depthOffset, 1)}rem` }}
       data-testid={
         isPinnedRequest
           ? `pinned-request-node-${getRequestNameOrFallback(doc)}`
@@ -263,20 +266,24 @@ export const RequestNode = ({ item, onToggleFolder, className }: RequestNodeProp
     >
       {isPinnedRequest ? (
         <>
-          <span className={`${GUIDE_LINE_CSS} left-6 group-hover/tree:bg-(--hl-sm)`} />
-          <span className={`${GUIDE_LINE_CSS} left-10 group-hover/tree:bg-(--hl-sm)`} />
+          {[1.5, 2.5]
+            .map(pos => pos - depthOffset)
+            .filter(pos => pos > 0)
+            .map(pos => (
+              <span key={pos} className={`${GUIDE_LINE_CSS} group-hover/tree:bg-(--hl-sm)`} style={{ left: `${pos}em` }} />
+            ))}
         </>
       ) : (
-        Array.from({ length: level + 2 }, (_, i) => {
-          const isActive = i === level + 1;
-          return (
+        // Drop the guide lines for the stripped ancestor levels and shift the rest left to match.
+        Array.from({ length: level + 2 }, (_, i) => ({ i, isActive: i === level + 1 }))
+          .filter(({ i }) => i >= depthOffset)
+          .map(({ i, isActive }) => (
             <span
               key={i}
               className={`${GUIDE_LINE_CSS} group-hover/tree:bg-(--hl-sm) ${isActive ? 'group-hover:bg-(--hl-sm)' : ''}`}
-              style={{ left: `${i + 1.5}em` }}
+              style={{ left: `${i + 1.5 - depthOffset}em` }}
             />
-          );
-        })
+          ))
       )}
       <span className={ACTIVE_BORDER_CLASS} />
       {isPinnedRequest ? (
@@ -292,15 +299,20 @@ export const RequestNode = ({ item, onToggleFolder, className }: RequestNodeProp
   );
 };
 
-export const PinnedHeaderNode = () => {
+export const PinnedHeaderNode = ({ depthOffset = 0 }: { depthOffset?: number }) => {
   return (
     <div
-      className={`${ROW_CLASS} group h-full! pl-12 group-hover:bg-transparent!`}
+      className={`${ROW_CLASS} group h-full! group-hover:bg-transparent!`}
+      style={{ paddingLeft: `${Math.max(3 - depthOffset, 1)}rem` }}
       data-testid="pinned-requests-header"
     >
       <Button slot="drag" className="hidden" />
-      <span className={`${GUIDE_LINE_CSS} left-6 group-hover/tree:bg-(--hl-sm)`} />
-      <span className={`${GUIDE_LINE_CSS} left-10 group-hover/tree:bg-(--hl-sm)`} />
+      {[1.5, 2.5]
+        .map(pos => pos - depthOffset)
+        .filter(pos => pos > 0)
+        .map(pos => (
+          <span key={pos} className={`${GUIDE_LINE_CSS} group-hover/tree:bg-(--hl-sm)`} style={{ left: `${pos}em` }} />
+        ))}
       <div className="ml-1 flex w-full items-center self-stretch rounded-t-sm border border-b-0 border-solid border-(--hl-md) bg-(--hl-xs) px-2 pt-1 text-(--hl)">
         <Icon icon="thumb-tack" className="h-4 w-4 shrink-0" />
         <span className="ml-1 text-base">Pinned</span>
